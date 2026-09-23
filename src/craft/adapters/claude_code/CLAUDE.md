@@ -17,7 +17,8 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
    not accept "it would be good to know". Ask the three questions the statement cannot exist
    without (reader, what they do differently, kill criteria); for scope and metric, propose
    defaults for the researcher to correct rather than asking open-ended.
-   Fill `problem.md` in the three-clause shape (studying X, to find out Y, so that a named
+   `craft new` creates `problem.md` from a template; fill that file in place (the write is
+   expected, do not ask whether to overwrite it). Fill it in the three-clause shape (studying X, to find out Y, so that a named
    reader understands Z) with the cost of leaving it unanswered and at least one kill
    criterion (prefer metric/op/value so it can be checked mechanically). Keep it to one page.
 

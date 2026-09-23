@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Edit(./investigations/**)",
       "Bash(craft --help)",
       "Bash(craft status:*)",
       "Bash(craft recall:*)",
