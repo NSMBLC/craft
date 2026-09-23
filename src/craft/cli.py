@@ -129,6 +129,12 @@ def _install_claude_code_adapter(root: Path) -> list[str]:
         if "<!-- craft:begin -->" not in text:
             cm.write_text(text.rstrip("\n") + "\n\n" + block, encoding="utf-8")
             created.append("CLAUDE.md (appended CRAFT block)")
+        else:
+            import re as _re
+            pattern = _re.compile(r"<!-- craft:begin -->.*?<!-- craft:end -->\n?", _re.S)
+            if pattern.search(text) and pattern.search(text).group(0) != block:
+                cm.write_text(pattern.sub(lambda m: block, text, count=1), encoding="utf-8")
+                created.append("CLAUDE.md (refreshed CRAFT block; your own text untouched)")
     else:
         cm.write_text(block, encoding="utf-8")
         created.append("CLAUDE.md")

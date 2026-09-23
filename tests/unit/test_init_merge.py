@@ -21,3 +21,17 @@ def test_init_strips_stale_write_rules_and_is_idempotent(tmp_path):
     assert "echo mine" in cmds and cmds.count("craft hook pre-tool-use") == 2
     r = c("init", "--path", str(root))
     assert "nothing to do" in r.out
+
+
+def test_init_refreshes_claude_md_block_but_keeps_user_text(tmp_path):
+    from tests.conftest import Craft
+    root = tmp_path / "p"
+    root.mkdir()
+    (root / "CLAUDE.md").write_text("# My notes\nkeep me\n\n<!-- craft:begin -->\nold playbook\n<!-- craft:end -->\n\n# After\nalso keep\n")
+    c = Craft(root)
+    r = c("init", "--path", str(root))
+    assert "refreshed CRAFT block" in r.out
+    text = (root / "CLAUDE.md").read_text()
+    assert "keep me" in text and "also keep" in text and "old playbook" not in text and "Kill criteria" in text
+    assert text.count("<!-- craft:begin -->") == 1
+    assert "nothing to do" in c("init", "--path", str(root)).out
