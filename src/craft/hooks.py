@@ -75,6 +75,10 @@ def user_prompt_submit() -> int:
     if prog is None:
         return 0
     prompt = payload.get("prompt") or payload.get("user_prompt") or ""
+    typed = _typed_decision(prog, payload, prompt)
+    if typed is not None:
+        print(typed)
+        return 0
     if len(prompt) < 12:
         return 0
     from . import memory as mem
@@ -94,6 +98,30 @@ def user_prompt_submit() -> int:
     lines.append("</craft-memory>")
     print("\n".join(lines))
     return 0
+
+
+def _typed_decision(prog: Programme, payload: dict, prompt: str) -> str | None:
+    """A researcher decision typed verbatim as a message is executed here, by the hook.
+
+    The hook runs only on text the researcher typed (the model cannot type into the prompt, and
+    the Bash screen denies the agent invoking `craft hook`). Typing the command is the confirmation.
+    """
+    from . import decisions
+
+    parsed = decisions.parse_typed(prompt)
+    if parsed is None:
+        return None
+    if payload.get("hook_event_name") not in (None, "UserPromptSubmit"):
+        return None
+    verb, opts = parsed
+    head = [f"<craft-decision>", f"The researcher typed `craft {verb}` as a message. CRAFT executed it directly "
+            "(this is the researcher's channel). Do NOT run the command yourself; report the outcome below and continue."]
+    try:
+        result = decisions.run_typed(prog, verb, opts)
+        body = result
+    except CraftError as e:
+        body = f"REFUSED: {e}"
+    return "\n".join(head + [body, "</craft-decision>"])
 
 
 def session_start() -> int:

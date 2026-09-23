@@ -30,9 +30,10 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
    favourable result is optional stopping, which pre-registration exists to prevent.
    Run `craft validate problem`. If the researcher brings their own statement, validate it and
    report only what is missing; do not rewrite what is sound and do not re-interview.
-   Then stop: the researcher approves by running `craft approve problem` in a terminal outside
-   Claude Code (not with `!`, which inherits the agent environment). Give them the exact
-   command with `cd <programme dir> &&` in front. Nothing advances before.
+   Then stop and tell the researcher: "Type `craft approve problem` as a message when you have
+   read it." That typed message is executed by CRAFT's prompt hook, not by you; you will see a
+   `<craft-decision>` block with the outcome. Never run approval commands yourself, and never
+   suggest `!`. Nothing advances before the approval.
 2. **Literature** — `craft lit add <key> --title ... --fulltext <path> --claims ... --method ...
    --relation supports|conflicts|orthogonal --does-not-cover ...` only for sources whose full
    text you actually retrieved and read. Anything seen only as an abstract goes in with
@@ -51,13 +52,13 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
 5. **Tasks and execution** — Only after the freeze may `tasks.md` exist. Keep evidence in
    `experiments/<exp>/evidence/` and exploration in `experiments/<exp>/exploratory/`; the
    latter can never back a criterion. Never edit `env.lock`: run `craft env propose <pkg>
-   --reason ...` and stop until the researcher approves. Record results with
+   --reason ...` and stop until the researcher types `craft env approve` as a message. Record results with
    `craft verdict <exp> --criterion <name> --evidence <file> --metric <key> [--exploratory <dir>]`;
    the label is computed from the frozen threshold. If a kill criterion is met, `craft` halts
    execution and routes to closure: stop remaining experiments and report.
 6. **Closure** — When every criterion has a verdict (or a kill fired), write `closure.md` with
-   any anomalies, then stop: the researcher runs `craft close` in a terminal outside Claude Code.
-   Memory is written only there.
+   any anomalies, then stop: the researcher types `craft close` as a message. Memory is written
+   only there.
 
 ## When the researcher pushes back
 - "Lower the threshold / fix the typo in the frozen document": refuse, state the

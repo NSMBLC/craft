@@ -41,6 +41,21 @@ temporarily removed, so they demonstrate the mechanical layer alone.
   session. All messages now say so.
 - `! …` bash mode does not trigger PreToolUse hooks (the refusal came from the CLI, not the hook).
 
+## Researcher decisions typed as messages
+
+Because `!` inherits the agent environment, the in-session channel for researcher decisions is
+the prompt itself. Claude Code passes every typed prompt to the `UserPromptSubmit` hook before
+the model sees it. When the prompt is exactly a decision command (`craft approve problem`,
+`craft close`, `craft env approve|reject`, `craft reopen problem|review`, `craft untaint`, each
+with optional `--inv/--note/...`), `craft hook user-prompt-submit` executes it and injects a
+`<craft-decision>` block telling the model the outcome and not to run the command itself.
+
+Why the agent cannot use this channel: it cannot type into the prompt; the Bash screen denies any
+agent command mentioning `craft hook`, `user-prompt-submit`, `craft.hooks` or `craft.decisions`;
+and the terminal form still requires no agent env vars plus a TTY. Typing the exact command is
+the confirmation (no y/N), so the agent's instruction is to say "type `craft approve problem`
+when you have read it", never to run it.
+
 ## Still to verify
 - Whether a `Stop` hook returning `{"decision":"block"}` is honoured in the current version.
   If not, the integrity report still arrives at SessionStart and before every transition.

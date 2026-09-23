@@ -17,7 +17,8 @@ from .util import CraftError
 
 HUMAN_ONLY = ("approve", "close", "reopen", "untaint")  # `craft <verb>` and `craft env approve`
 HUMAN_ONLY_RE = re.compile(
-    r"\bcraft\b[^;&|\n]*?\b(approve|close|reopen|untaint)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"\bcraft\b[^;&|\n]*?\b(approve|close|reopen|untaint|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"|\buser-prompt-submit\b|\bhooks\.py\b|\bcraft\.hooks\b|\bcraft\.decisions\b|\bdecisions\.py\b"
 )
 # `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null` are not file writes
 HARMLESS_REDIRECT_RE = re.compile(r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null")
@@ -246,8 +247,8 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
             "that `craft` command is a researcher decision (approve / close / reopen / untaint / env "
-            "approve). Ask the researcher to run it themselves in a terminal outside Claude Code, in the "
-            "programme directory. The agent cannot approve on their behalf.",
+            "approve). Ask the researcher to type it as a plain message (e.g. `craft approve problem`); "
+            "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",
         )
     if not MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command)):

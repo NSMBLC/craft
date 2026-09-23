@@ -62,6 +62,8 @@ def test_bash_screen(tmp_path):
     assert not decide_bash(prog, "craft approve problem", tmp_path).allow
     assert not decide_bash(prog, "cd x && craft  env approve", tmp_path).allow
     assert not decide_bash(prog, "CRAFT_ALLOW_NON_TTY=1 craft close", tmp_path).allow
+    assert not decide_bash(prog, "echo {} | craft hook user-prompt-submit", tmp_path).allow
+    assert not decide_bash(prog, "python -c 'import craft.hooks'", tmp_path).allow
     assert not decide_bash(prog, "echo '{}' >> memory/findings.jsonl", tmp_path).allow
     assert not decide_bash(prog, "sed -i '' 's/1.5/1.4/' investigations/inv-1/hypothesis.md", tmp_path).allow
     assert not decide_bash(prog, "chmod 644 investigations/inv-1/hypothesis.md", tmp_path).allow

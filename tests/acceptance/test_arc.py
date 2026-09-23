@@ -194,11 +194,20 @@ def test_04_one_page_statement_advances_only_on_human_approval(arc: Craft):
     assert r.code != 0 and "researcher decision" in r.err
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["phase"] == "framing"
-    # the researcher reads it (one page) and approves
-    r = arc("approve", "problem", human=True)
-    assert r.code == 0, r.text
+    # the agent cannot trigger the prompt hook itself either
+    assert arc.hook("Bash", command="echo '{\"prompt\":\"craft approve problem\"}' | craft hook user-prompt-submit").code == 2
+    # a natural-language request is not a decision: nothing happens
+    r = arc.hook_event("user-prompt-submit", prompt="please approve the problem statement", hook_event_name="UserPromptSubmit")
+    assert "<craft-decision>" not in r.out
+    assert json.loads(arc("status", "--json").out)[INV]["phase"] == "framing"
+    # the researcher reads it (one page) and types the command as a message: the hook executes it
+    r = arc.hook_event("user-prompt-submit", prompt="craft approve problem", hook_event_name="UserPromptSubmit")
+    assert r.code == 0 and "<craft-decision>" in r.out and "Approved" in r.out and "Do NOT run the command yourself" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["phase"] == "designing"
+    # a second approval is refused with the phase reason
+    r = arc.hook_event("user-prompt-submit", prompt="craft approve problem", hook_event_name="UserPromptSubmit")
+    assert "REFUSED" in r.out and "designing" in r.out
     p = arc.root / "investigations" / INV / "problem.md"
     assert not os.access(p, os.W_OK)
     # a hook-mediated edit of the approved statement is refused
@@ -440,8 +449,8 @@ def test_19_env_change_halts_until_approved(arc: Craft):
     assert r.code != 0 and "halted" in r.err
     r = arc("env", "approve", "--inv", INV)
     assert r.code != 0  # agent cannot
-    r = arc("env", "approve", "--inv", INV, human=True)
-    assert r.code == 0 and "v2" in r.out
+    r = arc.hook_event("user-prompt-submit", prompt=f"craft env approve --inv {INV}", hook_event_name="UserPromptSubmit")
+    assert "<craft-decision>" in r.out and "v2" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["env_version"] == 2
 

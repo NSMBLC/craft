@@ -22,9 +22,9 @@ def require_human(action: str) -> None:
         if os.environ.get(var):
             raise CraftError(
                 f"`craft {action}` is a researcher decision and this process is running inside an "
-                f"agent tool call ({var} is set). Run it yourself in a terminal outside Claude Code, in the "
-                "programme directory. (Commands typed with `!` inherit the session environment and are "
-                "refused too.)"
+                f"agent tool call ({var} is set). The researcher types `craft {action}` as a plain message in the "
+                "session (CRAFT's prompt hook executes it), or runs it in a terminal outside the session. "
+                "Commands typed with `!` inherit the agent environment and are refused."
             )
     if os.environ.get("CRAFT_ALLOW_NON_TTY") == "1":
         return

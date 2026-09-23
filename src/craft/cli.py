@@ -12,7 +12,7 @@ from typing import Optional
 
 import typer
 
-from . import envlock, hooks
+from . import decisions, envlock, hooks
 from . import memory as mem
 from .artifacts import review as rv
 from .artifacts.closure import close_investigation
@@ -101,8 +101,8 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
         echo(f"  + {c}")
     if not created:
         echo("  (nothing to do; already initialised)")
-    echo("Next: open your GenAI session here. Researcher-only commands (run in a terminal outside the session): "
-         "craft approve / close / reopen / untaint / env approve.")
+    echo("Next: open your GenAI session here. Your decisions are typed as plain messages: "
+         "craft approve problem / craft close / craft env approve / craft reopen ... / craft untaint.")
 
 
 def _install_claude_code_adapter(root: Path) -> list[str]:
@@ -247,7 +247,7 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
     if acks:
         echo(f"Recorded {len(acks)} memory acknowledgement(s) in problem.md.")
     echo("Next: interview the researcher about readers and fill problem.md; `craft validate problem`; "
-         "then the researcher runs `craft approve problem` in a terminal outside the session.")
+         "then the researcher types `craft approve problem` as a message.")
 
 
 # ------------------------------------------------------------------ validate / lint
@@ -333,31 +333,23 @@ def approve(what: str = typer.Argument(..., help="problem"), inv_id: Optional[st
     if what != "problem":
         raise CraftError("only `craft approve problem` exists; designs are frozen by review, not approval")
     require_human("approve problem")
-    prog, inv, state = _ctx(inv_id)
-    state.require_untainted("approve problem")
-    state.require_phase(Phase.FRAMING, action="approve problem")
-    v = validate_problem(inv.problem, int(prog.config["limits"]["problem_max_words"]))
-    if not v.ok:
-        raise CraftError("problem.md is not complete:\n" + v.render())
-    fm, body = read_doc(inv.problem)
-    echo(f"Problem statement for {state.id} ({inv.problem}):")
-    echo(f"  studying:   {fm.get('studying')}")
-    echo(f"  to find out:{fm.get('to_find_out')}")
-    echo(f"  so that:    {fm.get('so_that', {}).get('reader')} understands {fm.get('so_that', {}).get('understands')}")
-    echo(f"  cost:       {fm.get('cost_of_not_answering')}")
-    echo(f"  kill:       {[k.get('condition') for k in fm.get('kill_criteria', [])]}")
-    if not confirm("Approve and freeze this problem statement?"):
-        echo("Not approved.")
+    echo(_decide(lambda prog: decisions.approve_problem(prog, inv_id, note, _tty_confirm, "terminal")))
+
+
+def _tty_confirm(preview: str) -> bool:
+    lines = preview.rsplit("\n", 1)
+    if len(lines) == 2:
+        echo(lines[0])
+        return confirm(lines[1])
+    return confirm(preview)
+
+
+def _decide(fn) -> str:
+    try:
+        return fn(_prog())
+    except decisions.Declined as e:
+        echo(str(e))
         raise typer.Exit(code=1)
-    digest = freeze_file(inv.problem)
-    state.problem_sha256 = digest
-    state.approvals.append(Approval(what="problem", when=now_iso(), sha256=digest, note=note))
-    state.attend("approve-problem", "problem.md", note)
-    state.phase = Phase.DESIGNING
-    if not inv.hypothesis.exists():
-        inv.hypothesis.write_text(_template("hypothesis.md").replace("{id}", state.id), encoding="utf-8")
-    state.save(inv.root)
-    echo(f"Approved. problem.md frozen (sha256 {digest[:12]}). Phase: designing. hypothesis.md draft created.")
 
 
 # ------------------------------------------------------------------ review
@@ -527,28 +519,14 @@ def env_approve(lock: Optional[Path] = typer.Option(None, "--lock", help="New lo
                 inv_id: Optional[str] = INV_OPT) -> None:
     """RESEARCHER ONLY. Accept the pending environment proposal; bumps the env version."""
     require_human("env approve")
-    prog, inv, state = _ctx(inv_id)
-    prop = envlock.pending(state)
-    if not prop:
-        raise CraftError("no pending proposal")
-    echo(f"Proposal: add '{prop['package']}' — {prop['reason']}")
-    if not confirm("Approve this environment change?"):
-        raise typer.Exit(code=1)
-    v = envlock.approve(inv, state, lock)
-    state.attend("approve-env", prop["package"], prop["reason"])
-    state.save(inv.root)
-    echo(f"Environment is now v{v} (sha256 {state.env.lock_sha256[:12]}). Subsequent verdicts record v{v}.")
+    echo(_decide(lambda prog: decisions.env_approve(prog, inv_id, lock, _tty_confirm, "terminal")))
 
 
 @env_app.command("reject")
 def env_reject(note: str = typer.Option(..., "--note"), inv_id: Optional[str] = INV_OPT) -> None:
     """RESEARCHER ONLY. Reject the pending environment proposal."""
     require_human("env reject")
-    prog, inv, state = _ctx(inv_id)
-    envlock.reject(inv, state, note)
-    state.attend("reject-env", "env", note)
-    state.save(inv.root)
-    echo("Proposal rejected; execution may continue with the current environment.")
+    echo(_decide(lambda prog: decisions.env_reject(prog, inv_id, note, "terminal")))
 
 
 # ------------------------------------------------------------------ verdict / finish
@@ -698,27 +676,7 @@ def close(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"
           incomplete: bool = typer.Option(False, "--incomplete", help="Close an executing investigation without all verdicts.")) -> None:
     """RESEARCHER ONLY. Close the investigation: route outcomes to memory, archive it intact."""
     require_human("close")
-    prog, inv, state = _ctx(inv_id)
-    problems = verify_investigation(prog, state.id)
-    if problems:
-        raise CraftError("integrity problems block closure:\n  " + "\n  ".join(problems))
-    state = InvestigationState.load(inv.root)
-    state.require_untainted("close")
-    if state.phase == Phase.EXECUTING and incomplete:
-        state.phase = Phase.CLOSING
-        state.attend("close-incomplete", state.id, note or "closed before all criteria had verdicts")
-    state.require_phase(Phase.CLOSING, action="close")
-    echo(f"Closing {state.id}: {len(state.verdicts)} verdict(s)" + (f", kill {state.kill.criterion}" if state.kill.triggered else ""))
-    for v in state.verdicts:
-        echo(f"  {v.criterion} ({v.experiment}): {v.label}")
-    if inv.closure.exists():
-        cfm, _ = read_doc(inv.closure)
-        echo(f"  anomalies: {len(cfm.get('anomalies') or [])}")
-    if not confirm("Close and archive? Memory will be updated."):
-        raise typer.Exit(code=1)
-    routed = close_investigation(prog, inv, state, note)
-    echo(f"Closed. findings +{len(routed['finding'])}, refuted +{len(routed['refuted'])}, open questions +{len(routed['open'])}. "
-         f"Archived to archive/{state.id}/ (read-only).")
+    echo(_decide(lambda prog: decisions.close(prog, inv_id, note, incomplete, _tty_confirm, "terminal")))
 
 
 # ------------------------------------------------------------------ reopen / untaint (human)
@@ -727,43 +685,14 @@ def close(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"
 def reopen_problem(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--note")) -> None:
     """RESEARCHER ONLY. Reopen an approved problem statement for editing (before the design is frozen)."""
     require_human("reopen problem")
-    prog, inv, state = _ctx(inv_id)
-    state.require_phase(Phase.DESIGNING, Phase.RESPONDING, action="reopen problem")
-    if not confirm("Reopen problem.md? Approval is withdrawn."):
-        raise typer.Exit(code=1)
-    thaw_file(inv.problem)
-    state.problem_sha256 = None
-    state.phase = Phase.FRAMING
-    state.attend("reopen", "problem.md", note)
-    state.save(inv.root)
-    echo("problem.md reopened; phase: framing.")
+    echo(_decide(lambda prog: decisions.reopen_problem(prog, inv_id, note, _tty_confirm, "terminal")))
 
 
 @reopen_app.command("review")
 def reopen_review(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--note")) -> None:
     """RESEARCHER ONLY. After an exhausted review, start a fresh cycle once the design was genuinely changed."""
     require_human("reopen review")
-    prog, inv, state = _ctx(inv_id)
-    state.require_phase(Phase.RESPONDING, action="reopen review")
-    last = state.review.rounds[-1]
-    if sha256_file(inv.hypothesis) == last.hypothesis_sha256:
-        raise CraftError("hypothesis.md has not changed since the last round; reopening requires a genuine design change first.")
-    if not confirm(f"Archive {len(state.review.rounds)} round(s) and start a fresh review cycle?"):
-        raise typer.Exit(code=1)
-    k = len(state.review.history) + 1
-    hist = inv.review_dir / f"history-{k}"
-    hist.mkdir()
-    for p in list(inv.review_dir.iterdir()):
-        if p.is_file():
-            p.chmod(0o644)
-            shutil.move(str(p), str(hist / p.name))
-    state.review.history.append([r.model_dump() for r in state.review.rounds])
-    state.review.rounds = []
-    state.review.exhausted = False
-    state.phase = Phase.DESIGNING
-    state.attend("reopen", "review", note)
-    state.save(inv.root)
-    echo(f"Review reopened (previous rounds in review/history-{k}/). Phase: designing.")
+    echo(_decide(lambda prog: decisions.reopen_review(prog, inv_id, note, _tty_confirm, "terminal")))
 
 
 @app.command()
@@ -771,30 +700,7 @@ def untaint(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--no
             accept_current: bool = typer.Option(False, "--accept-current", help="Re-record hashes of the current frozen files (logged).")) -> None:
     """RESEARCHER ONLY. Clear an integrity failure after reviewing it."""
     require_human("untaint")
-    prog, inv, state = _ctx(inv_id)
-    if not state.tainted:
-        echo("not tainted")
-        return
-    echo("Taint reasons:\n  " + "\n  ".join(state.taint_reasons))
-    if accept_current:
-        if not confirm("Re-record the CURRENT contents of frozen files as authoritative? This is logged."):
-            raise typer.Exit(code=1)
-        if state.problem_sha256 and inv.problem.exists():
-            state.problem_sha256 = freeze_file(inv.problem)
-        if state.review.frozen_sha256 and inv.hypothesis.exists():
-            state.review.frozen_sha256 = freeze_file(inv.hypothesis)
-        if state.env.lock_sha256 and inv.env_lock.exists():
-            inv.env_lock.chmod(0o444)
-            state.env.lock_sha256 = sha256_file(inv.env_lock)
-    state.tainted = False
-    reasons = list(state.taint_reasons)
-    state.taint_reasons = []
-    state.attend("untaint", state.id, note + (" [accepted current contents]" if accept_current else "") + " | " + "; ".join(reasons))
-    state.save(inv.root)
-    remaining = verify_investigation(prog, state.id)
-    if remaining:
-        raise CraftError("still failing integrity (restore the files or use --accept-current):\n  " + "\n  ".join(remaining))
-    echo("Untainted.")
+    echo(_decide(lambda prog: decisions.untaint(prog, inv_id, note, accept_current, _tty_confirm, "terminal")))
 
 
 # ------------------------------------------------------------------ status / explain / attention / verify
