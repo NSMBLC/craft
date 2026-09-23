@@ -203,6 +203,7 @@ def test_04_one_page_statement_advances_only_on_human_approval(arc: Craft):
     # the researcher reads it (one page) and types the command as a message: the hook executes it
     r = arc.hook_event("user-prompt-submit", prompt="/craft-approve problem", hook_event_name="UserPromptSubmit")
     assert r.code == 0 and "<craft-decision>" in r.out and "Approved" in r.out and "Do NOT run the command yourself" in r.out
+    assert "WAIT for the researcher" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["phase"] == "designing"
     # a second approval is refused with the phase reason
