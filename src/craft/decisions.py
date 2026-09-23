@@ -191,7 +191,7 @@ def untaint(prog: Programme, inv_id: str | None, note: str, accept_current: bool
 
 # Accepted forms: `/craft-approve problem` (slash skill), `/craft approve problem`, `craft approve problem`
 TYPED_RE = re.compile(
-    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve\s+problem|close|env\s+approve|env\s+reject|reopen\s+problem|reopen\s+review|untaint)\b(.*)$",
+    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve\s+problem|approve\s+package|reject\s+package|close|reopen\s+problem|reopen\s+review|untaint)\b(.*)$",
     re.S,
 )
 
@@ -244,11 +244,11 @@ def run_typed(prog: Programme, verb: str, o: dict) -> str:
     via = "typed prompt"
     if verb == "approve problem":
         return approve_problem(prog, o["inv"], o["note"], typed_confirm, via)
-    if verb == "env approve":
+    if verb == "approve package":
         return env_approve(prog, o["inv"], o["lock"], typed_confirm, via)
-    if verb == "env reject":
+    if verb == "reject package":
         if not o["note"]:
-            raise CraftError('`craft env reject` needs --note "why"')
+            raise CraftError('`craft reject package` needs --note "why"')
         return env_reject(prog, o["inv"], o["note"], via)
     if verb == "close":
         return close(prog, o["inv"], o["note"], o["incomplete"], typed_confirm, via)

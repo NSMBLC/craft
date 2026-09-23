@@ -29,7 +29,7 @@ def propose(inv: InvestigationPaths, state: InvestigationState, package: str, re
     if state.env.pending_proposal:
         raise CraftError(
             f"a proposal is already pending ({state.env.pending_proposal['package']}); execution is halted "
-            "until the researcher runs `craft env approve` (or `craft env reject`)."
+            "until the researcher runs `craft approve package` (or `craft reject package`)."
         )
     prop = {"package": package, "reason": reason, "when": now_iso(), "from_version": state.env.version}
     write_yaml(inv.env_proposal, prop)
@@ -81,7 +81,7 @@ def verify_lock(inv: InvestigationPaths, state: InvestigationState) -> str | Non
     if not inv.env_lock.exists():
         return "env.lock is missing"
     if sha256_file(inv.env_lock) != state.env.lock_sha256:
-        return "env.lock was modified outside `craft env approve`"
+        return "env.lock was modified outside `craft approve package`"
     return None
 
 

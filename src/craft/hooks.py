@@ -127,12 +127,12 @@ def _typed_decision(prog: Programme, payload: dict, prompt: str) -> str | None:
 
 
 # What the agent does after each decision. Pre-freeze phases are collaborative: propose, then wait.
-# Execution (after env approve) runs itself. Closure ends the investigation.
+# Execution (after approve package) runs itself. Closure ends the investigation.
 NEXT_STEP = {
     "approve problem": ("Then propose the literature scope in a few lines (which venues/years/keywords, what is "
                         "out of scope) and WAIT for the researcher's go-ahead before searching or drafting anything."),
-    "env approve": "Then resume execution where it halted, without asking.",
-    "env reject": "Then continue execution with the current environment, or report what cannot be done without the change.",
+    "approve package": "Then resume execution where it halted, without asking.",
+    "reject package": "Then continue execution with the current environment, or report what cannot be done without the change.",
     "close": "Then summarise what went to findings, refuted and open questions. Do not start a new investigation unprompted.",
     "reopen problem": "Then ask what the researcher wants changed in problem.md; do not edit it on your own.",
     "reopen review": "Then request the new review round only when the researcher says the design is ready.",

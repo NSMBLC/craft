@@ -45,7 +45,7 @@ and make five kinds of decisions as slash commands in the session (they autocomp
 
 ```
 /craft-approve problem    # after reading the one-page statement
-/craft-env approve        # accept a proposed package addition
+/craft-approve package    # accept a proposed package addition (/craft-reject package to refuse)
 /craft-close              # close the investigation; memory is written here only
 /craft-reopen problem|review --note "..."
 /craft-untaint --note "..."

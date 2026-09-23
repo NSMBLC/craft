@@ -102,7 +102,7 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
     if not created:
         echo("  (nothing to do; already initialised)")
     echo("Next: open your GenAI session here. Your decisions are slash commands: "
-         "/craft-approve problem, /craft-close, /craft-env approve, /craft-reopen problem|review, /craft-untaint.")
+         "/craft-approve problem, /craft-approve package, /craft-reject package, /craft-close, /craft-reopen ..., /craft-untaint.")
 
 
 def _install_claude_code_adapter(root: Path) -> list[str]:
@@ -139,6 +139,10 @@ def _install_claude_code_adapter(root: Path) -> list[str]:
     else:
         cm.write_text(block, encoding="utf-8")
         created.append("CLAUDE.md")
+    retired = claude_dir / "skills" / "craft-env" / "SKILL.md"
+    if retired.exists() and "Researcher decision" in retired.read_text(encoding="utf-8"):
+        shutil.rmtree(retired.parent)
+        created.append("removed retired .claude/skills/craft-env")
     for skill in adapter.joinpath("skills").iterdir():
         src = skill.joinpath("SKILL.md")
         if not src.is_file():
@@ -332,13 +336,28 @@ def lit_closest(key: str, delta: str = typer.Option(..., "--delta", help="One pa
 # ------------------------------------------------------------------ approve (human)
 
 @app.command()
-def approve(what: str = typer.Argument(..., help="problem"), inv_id: Optional[str] = INV_OPT,
-            note: str = typer.Option("", "--note")) -> None:
-    """RESEARCHER ONLY. Approve the one-page problem statement; freezes it and opens design."""
-    if what != "problem":
-        raise CraftError("only `craft approve problem` exists; designs are frozen by review, not approval")
-    require_human("approve problem")
-    echo(_decide(lambda prog: decisions.approve_problem(prog, inv_id, note, _tty_confirm, "terminal")))
+def approve(what: str = typer.Argument(..., help="problem | package"), inv_id: Optional[str] = INV_OPT,
+            note: str = typer.Option("", "--note"),
+            lock: Optional[Path] = typer.Option(None, "--lock", help="(package) new lock file; default appends the package line.")) -> None:
+    """RESEARCHER ONLY. Approve the problem statement (freezes it) or a proposed package addition."""
+    if what == "problem":
+        require_human("approve problem")
+        echo(_decide(lambda prog: decisions.approve_problem(prog, inv_id, note, _tty_confirm, "terminal")))
+    elif what == "package":
+        require_human("approve package")
+        echo(_decide(lambda prog: decisions.env_approve(prog, inv_id, lock, _tty_confirm, "terminal")))
+    else:
+        raise CraftError("`craft approve problem` or `craft approve package`; designs are frozen by review, not approval")
+
+
+@app.command()
+def reject(what: str = typer.Argument(..., help="package"), note: str = typer.Option(..., "--note"),
+           inv_id: Optional[str] = INV_OPT) -> None:
+    """RESEARCHER ONLY. Reject the pending package proposal; execution continues with the current environment."""
+    if what != "package":
+        raise CraftError("only `craft reject package` exists")
+    require_human("reject package")
+    echo(_decide(lambda prog: decisions.env_reject(prog, inv_id, note, "terminal")))
 
 
 def _tty_confirm(preview: str) -> bool:
@@ -516,22 +535,8 @@ def env_propose(package: str, reason: str = typer.Option(..., "--reason"), inv_i
     envlock.propose(inv, state, package, reason)
     state.save(inv.root)
     echo(f"Proposed adding '{package}' (env v{state.env.version} -> v{state.env.version + 1}). "
-         "Execution is halted: no verdicts can be filed until the researcher runs `craft env approve` (or `craft env reject`).")
+         "Execution is halted: no verdicts can be filed until the researcher types `/craft-approve package` (or `/craft-reject package`).")
 
-
-@env_app.command("approve")
-def env_approve(lock: Optional[Path] = typer.Option(None, "--lock", help="New lock file; default appends the package line."),
-                inv_id: Optional[str] = INV_OPT) -> None:
-    """RESEARCHER ONLY. Accept the pending environment proposal; bumps the env version."""
-    require_human("env approve")
-    echo(_decide(lambda prog: decisions.env_approve(prog, inv_id, lock, _tty_confirm, "terminal")))
-
-
-@env_app.command("reject")
-def env_reject(note: str = typer.Option(..., "--note"), inv_id: Optional[str] = INV_OPT) -> None:
-    """RESEARCHER ONLY. Reject the pending environment proposal."""
-    require_human("env reject")
-    echo(_decide(lambda prog: decisions.env_reject(prog, inv_id, note, "terminal")))
 
 
 # ------------------------------------------------------------------ verdict / finish
@@ -548,7 +553,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
     state.require_untainted("file a verdict")
     state.require_phase(Phase.EXECUTING, action="file a verdict")
     if state.env.pending_proposal:
-        raise CraftError(f"execution is halted: environment proposal '{state.env.pending_proposal['package']}' awaits `craft env approve`.")
+        raise CraftError(f"execution is halted: environment proposal '{state.env.pending_proposal['package']}' awaits `/craft-approve package` (or `/craft-reject package`).")
     fm, _ = read_doc(inv.hypothesis)
     crits = criteria_table(fm)
     if criterion not in crits:

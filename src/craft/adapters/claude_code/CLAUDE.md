@@ -52,7 +52,7 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
 5. **Tasks and execution** — Only after the freeze may `tasks.md` exist. Keep evidence in
    `experiments/<exp>/evidence/` and exploration in `experiments/<exp>/exploratory/`; the
    latter can never back a criterion. Never edit `env.lock`: run `craft env propose <pkg>
-   --reason ...` and stop until the researcher types `/craft-env approve`. Record results with
+   --reason ...` and stop until the researcher types `/craft-approve package` (or `/craft-reject package`). Record results with
    `craft verdict <exp> --criterion <name> --evidence <file> --metric <key> [--exploratory <dir>]`;
    the label is computed from the frozen threshold. If a kill criterion is met, `craft` halts
    execution and routes to closure: stop remaining experiments and report.

@@ -448,9 +448,9 @@ def test_19_env_change_halts_until_approved(arc: Craft):
     assert r.code == 0 and "halted" in r.out
     r = arc("verdict", "exp1", "--criterion", "C1", "--evidence", str(ev), "--inv", INV)
     assert r.code != 0 and "halted" in r.err
-    r = arc("env", "approve", "--inv", INV)
+    r = arc("approve", "package", "--inv", INV)
     assert r.code != 0  # agent cannot
-    r = arc.hook_event("user-prompt-submit", prompt=f"/craft-env approve --inv {INV}", hook_event_name="UserPromptSubmit")
+    r = arc.hook_event("user-prompt-submit", prompt=f"/craft-approve package --inv {INV}", hook_event_name="UserPromptSubmit")
     assert "<craft-decision>" in r.out and "v2" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["env_version"] == 2

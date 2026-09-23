@@ -210,7 +210,7 @@ class InvestigationState(BaseModel):
             return "Design is frozen; write tasks.md to begin execution."
         if self.phase == Phase.EXECUTING:
             if self.env.pending_proposal:
-                return "An environment change is proposed and awaits `craft env approve`."
+                return "An environment change is proposed and awaits `craft approve package`."
             return "Execution in progress; file verdicts with `craft verdict`."
         if self.phase == Phase.CLOSING:
             return "Ready to close: a researcher runs `craft close`."

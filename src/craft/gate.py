@@ -15,9 +15,9 @@ from .paths import ARCHIVE_DIR, INVESTIGATIONS_DIR, MEMORY_DIR, PROGRAMME_MARKER
 from .state import InvestigationState, Phase
 from .util import CraftError
 
-HUMAN_ONLY = ("approve", "close", "reopen", "untaint")  # `craft <verb>` and `craft env approve`
+HUMAN_ONLY = ("approve", "reject", "close", "reopen", "untaint")  # `craft <verb> ...`
 HUMAN_ONLY_RE = re.compile(
-    r"\bcraft\b[^;&|\n]*?\b(approve|close|reopen|untaint|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"\bcraft\b[^;&|\n]*?\b(approve|reject|close|reopen|untaint|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
     r"|\buser-prompt-submit\b|\bhooks\.py\b|\bcraft\.hooks\b|\bcraft\.decisions\b|\bdecisions\.py\b"
 )
 # `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null` are not file writes
@@ -156,7 +156,7 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) 
     if name == "env.lock":
         return Decision.deny(
             "env.lock changes only through `craft env propose` (agent) followed by "
-            "`craft env approve` (researcher).",
+            "`craft approve package` (researcher).",
             "6.1",
         )
     if name == "env.proposal.yaml":
@@ -246,8 +246,8 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     """
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
-            "that `craft` command is a researcher decision (approve / close / reopen / untaint / env "
-            "approve). Ask the researcher to type it as a slash command (e.g. `/craft-approve problem`); "
+            "that `craft` command is a researcher decision (approve / reject / close / reopen / untaint "
+            "package). Ask the researcher to type it as a slash command (e.g. `/craft-approve problem`); "
             "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",
         )
