@@ -11,11 +11,23 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
 1. **Framing** — Before drafting anything, run `craft recall "<the researcher's words>"`. If it
    returns a refuted or existing entry, cite it and ask what has changed; only then run
    `craft new <id> --topic "..." --acknowledge <entry-id> --justification "..."`.
-   Interview the researcher about *readers*, not methods: who changes their mind if this is
-   answered, and what do they do differently? Do not accept "it would be good to know".
+   Choose the investigation id yourself (short kebab-case slug, e.g. `kmeanspp-init-cost`);
+   never ask the researcher for bookkeeping. Then interview them about *readers*, not
+   methods: who changes their mind if this is answered, and what do they do differently? Do
+   not accept "it would be good to know". Ask the three questions the statement cannot exist
+   without (reader, what they do differently, kill criteria); for scope and metric, propose
+   defaults for the researcher to correct rather than asking open-ended.
    Fill `problem.md` in the three-clause shape (studying X, to find out Y, so that a named
    reader understands Z) with the cost of leaving it unanswered and at least one kill
    criterion (prefer metric/op/value so it can be checked mechanically). Keep it to one page.
+
+   **Kill criteria** are conditions under which the question turns out to be dead or
+   unanswerable, so the investigation is abandoned *before* the budget is spent. They are
+   never success conditions. Correct examples: "the baseline cannot be reproduced within 2%
+   of its published number"; "pilot run-to-run standard deviation exceeds 0.5, so the planned
+   runs cannot detect the effect"; "the target regime does not fit on available hardware".
+   Wrong example: "if A is 20% faster we stop" — that is a success criterion; stopping on a
+   favourable result is optional stopping, which pre-registration exists to prevent.
    Run `craft validate problem`. If the researcher brings their own statement, validate it and
    report only what is missing; do not rewrite what is sound and do not re-interview.
    Then stop: the researcher approves with `! craft approve problem`. Nothing advances before.
