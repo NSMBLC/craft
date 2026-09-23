@@ -2,34 +2,66 @@
   "permissions": {
     "deny": [
       "Edit(./.claude/**)",
-      "Write(./.claude/**)",
       "Edit(./craft.yaml)",
-      "Write(./craft.yaml)",
       "Edit(./memory/**)",
-      "Write(./memory/**)",
-      "Edit(./archive/**)",
-      "Write(./archive/**)"
+      "Edit(./archive/**)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [{ "type": "command", "command": "craft hook pre-tool-use", "timeout": 20 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "craft hook pre-tool-use",
+            "timeout": 20
+          }
+        ]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "craft hook pre-tool-use", "timeout": 20 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "craft hook pre-tool-use",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "craft hook user-prompt-submit", "timeout": 20 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "craft hook user-prompt-submit",
+            "timeout": 20
+          }
+        ]
+      }
     ],
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "craft hook session-start", "timeout": 20 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "craft hook session-start",
+            "timeout": 20
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "craft hook stop", "timeout": 20 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "craft hook stop",
+            "timeout": 20
+          }
+        ]
+      }
     ]
   }
 }
