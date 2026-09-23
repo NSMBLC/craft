@@ -107,7 +107,7 @@ class KillState(BaseModel):
 
 class AttentionEntry(BaseModel):
     when: str
-    kind: str            # approve-problem | approve-env | close | reopen | untaint | acknowledge
+    kind: str            # approve-problem | approve-env | reject-env | close | reopen | untaint(resolve) | acknowledge
     subject: str
     note: str = ""
 
@@ -182,39 +182,58 @@ class InvestigationState(BaseModel):
         if self.tainted:
             reasons = "; ".join(self.taint_reasons) or "integrity check failed"
             raise CraftError(
-                f"cannot {action}: investigation {self.id} is tainted ({reasons}). "
-                "A researcher must run `craft untaint` after reviewing what happened."
+                f"cannot {action}: investigation {self.id} is on integrity hold ({reasons}). "
+                "The researcher reviews what happened and types `/craft-resolve --note \"...\"`."
             )
 
-    def blocked_reason(self) -> str:
-        """One sentence explaining what stands between this investigation and the next gate."""
-        if self.phase == Phase.FRAMING:
-            return "The problem statement has not been approved by the researcher (`craft approve problem`)."
-        if self.phase == Phase.DESIGNING:
+    def next_action(self) -> tuple[str, str, str]:
+        """(who, command, sentence): whose turn it is, the exact command they type, and why.
+
+        `who` is "researcher" or "agent" (or "nobody" when closed). Researcher commands are
+        given in slash form; agent commands in `craft ...` form.
+        """
+        if self.tainted:
+            return ("researcher", "/craft-resolve --note \"...\"",
+                    "the investigation is on integrity hold: " + ("; ".join(self.taint_reasons) or "a frozen file changed"))
+        ph = self.phase
+        if ph == Phase.FRAMING:
+            return ("researcher", "/craft-approve",
+                    "the one-page problem statement awaits the researcher's reading and approval "
+                    "(the agent first fills it in and runs `craft validate problem`)")
+        if ph == Phase.DESIGNING:
             if self.review.rounds:
-                return "Review was reopened; request a new review round when the design has changed."
-            return "The hypothesis has not been reviewed (`craft review request`)."
-        if self.phase == Phase.RESPONDING:
+                return ("agent", "craft review", "review was reopened; request a new round once the design has changed")
+            return ("agent", "craft review", "draft hypothesis.md, run `craft validate`, then request the independent review")
+        if ph == Phase.RESPONDING:
             ids = ", ".join(self.open_blocking) or "none listed"
             if self.review.exhausted:
-                return (
-                    f"Review round {len(self.review.rounds)} left blocking objections unresolved ({ids}) "
-                    "and the round cap is reached; the design must be genuinely fixed and a researcher "
-                    "must run `craft reopen review`."
-                )
-            return (
-                f"Review round {len(self.review.rounds)} has open blocking objections ({ids}); "
-                "answer each with `craft review respond` and request the next round."
-            )
-        if self.phase == Phase.FROZEN:
-            return "Design is frozen; write tasks.md to begin execution."
-        if self.phase == Phase.EXECUTING:
+                return ("researcher", "/craft-reopen review --note \"...\"",
+                        f"review round {len(self.review.rounds)} left blocking objections unresolved ({ids}) and the "
+                        "round cap is reached; the design must be genuinely fixed, then the researcher reopens review")
+            return ("agent", "craft review respond <id> --pointer <doc#section> --note \"...\"",
+                    f"review round {len(self.review.rounds)} has open blocking objections ({ids}); change the design, "
+                    "answer each, then `craft review` for the next round")
+        if ph == Phase.FROZEN:
+            return ("agent", "write tasks.md", "the design is frozen; writing tasks.md starts execution")
+        if ph == Phase.EXECUTING:
             if self.env.pending_proposal:
-                return "An environment change is proposed and awaits `craft approve package`."
-            return "Execution in progress; file verdicts with `craft verdict`."
-        if self.phase == Phase.CLOSING:
-            return "Ready to close: a researcher runs `craft close`."
-        return "Closed."
+                return ("researcher", "/craft-approve",
+                        f"the agent proposed adding '{self.env.pending_proposal['package']}' to the locked environment; "
+                        "execution is halted until approved (or `/craft-reject --note`)")
+            return ("agent", "craft verdict <exp> --criterion <name> --evidence <file>",
+                    "run the experiments and file a verdict per criterion; a kill criterion or the last verdict routes to closure")
+        if ph == Phase.CLOSING:
+            return ("researcher", "/craft-close",
+                    ("kill criterion met" if self.kill.triggered else "every criterion has a verdict")
+                    + "; the agent writes closure.md (anomalies -> open questions), then the researcher closes")
+        return ("nobody", "", "closed and archived")
+
+    def blocked_reason(self) -> str:
+        """One sentence: what stands between this investigation and the next gate, and who acts."""
+        who, cmd, why = self.next_action()
+        if who == "nobody":
+            return "Closed."
+        return f"{why}. Waiting on the {who}: `{cmd}`."
 
 
 def new_state(inv_id: str, topic: str) -> InvestigationState:

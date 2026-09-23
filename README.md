@@ -39,16 +39,17 @@ agent playbook, and a `/craft` skill. It never overwrites files you already have
 ## Every day
 
 Talk to the agent in plain language. It runs `craft recall`, `craft new`, `craft validate`,
-`craft lit add`, `craft review request`, `craft verdict` and so on. You read one-page artifacts
+`craft literature add`, `craft review`, `craft verdict` and so on. You read one-page artifacts
 and make five kinds of decisions as slash commands in the session (they autocomplete; the plain
 `craft ...` forms also work typed as a message or in a terminal of your own):
 
 ```
-/craft-approve problem    # after reading the one-page statement
-/craft-approve package    # accept a proposed package addition (/craft-reject package to refuse)
+/craft-approve            # approve what the agent is waiting on: the one-page statement, or a package
+/craft-reject --note "…"  # refuse a proposed package
 /craft-close              # close the investigation; memory is written here only
-/craft-reopen problem|review --note "..."
-/craft-untaint --note "..."
+/craft-reopen problem|review
+/craft-resolve --note "…" # clear an integrity hold
+/craft-status  /craft-help  /craft-decisions  /craft-explain <id>   # answered directly, no model turn
 ```
 
 Typed as a slash command or message, the decision never reaches the model: Claude Code hands every prompt to

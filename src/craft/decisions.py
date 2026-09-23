@@ -189,11 +189,16 @@ def untaint(prog: Programme, inv_id: str | None, note: str, accept_current: bool
 
 # ------------------------------------------------------------- typed-prompt dispatch
 
-# Accepted forms: `/craft-approve problem` (slash skill), `/craft approve problem`, `craft approve problem`
+# Accepted forms: `/craft-approve` (slash skill), `/craft approve`, `craft approve`, each with optional
+# subject and options. Read-only queries (status, help, decisions, explain) use the same channel.
+DECISION_VERBS = ("approve", "reject", "close", "reopen", "resolve")
+QUERY_VERBS = ("status", "help", "decisions", "explain")
 TYPED_RE = re.compile(
-    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve\s+problem|approve\s+package|reject\s+package|close|reopen\s+problem|reopen\s+review|untaint)\b(.*)$",
+    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve|reject|close|reopen|resolve|status|help|decisions|explain)\b(.*)$",
     re.S,
 )
+SUBJECTS = {"approve": {"problem", "package", None}, "reject": {"package", None}, "reopen": {"problem", "review"},
+            "close": {None}, "resolve": {None}, "status": {None}, "help": {None}, "decisions": {None}}
 
 
 def parse_typed(prompt: str) -> tuple[str, dict] | None:
@@ -207,12 +212,24 @@ def parse_typed(prompt: str) -> tuple[str, dict] | None:
     m = TYPED_RE.match(text)
     if not m:
         return None
-    verb = re.sub(r"\s+", " ", m.group(1))
+    verb = m.group(1)
     try:
         toks = shlex.split(m.group(2))
     except ValueError:
         return None
-    opts: dict = {"inv": None, "note": "", "lock": None, "incomplete": False, "accept_current": False}
+    opts: dict = {"inv": None, "note": "", "lock": None, "incomplete": False, "accept_current": False,
+                  "subject": None, "arg": None}
+    if verb == "explain":
+        if len(toks) != 1 or toks[0].startswith("-"):
+            return None
+        opts["arg"] = toks[0]
+        return "explain", opts
+    if toks and not toks[0].startswith("-"):
+        opts["subject"] = toks.pop(0)
+    if opts["subject"] not in SUBJECTS[verb]:
+        return None
+    if verb == "reopen" and opts["subject"] is None:
+        return None
     i = 0
     while i < len(toks):
         t = toks[i]
@@ -242,22 +259,56 @@ def run_typed(prog: Programme, verb: str, o: dict) -> str:
         return True
 
     via = "typed prompt"
-    if verb == "approve problem":
-        return approve_problem(prog, o["inv"], o["note"], typed_confirm, via)
-    if verb == "approve package":
+    subject = o.get("subject")
+    if verb == "approve":
+        subject = subject or pending_subject(prog, o["inv"], "approve")
+        if subject == "problem":
+            return approve_problem(prog, o["inv"], o["note"], typed_confirm, via)
         return env_approve(prog, o["inv"], o["lock"], typed_confirm, via)
-    if verb == "reject package":
+    if verb == "reject":
+        pending_subject(prog, o["inv"], "reject")
         if not o["note"]:
-            raise CraftError('`craft reject package` needs --note "why"')
+            raise CraftError('`/craft-reject` needs --note "why"')
         return env_reject(prog, o["inv"], o["note"], via)
     if verb == "close":
         return close(prog, o["inv"], o["note"], o["incomplete"], typed_confirm, via)
-    if verb == "reopen problem":
-        return reopen_problem(prog, o["inv"], o["note"] or "reopened by researcher", typed_confirm, via)
-    if verb == "reopen review":
-        return reopen_review(prog, o["inv"], o["note"] or "reopened by researcher", typed_confirm, via)
-    if verb == "untaint":
+    if verb == "reopen":
+        note = o["note"] or "reopened by researcher"
+        if subject == "problem":
+            return reopen_problem(prog, o["inv"], note, typed_confirm, via)
+        return reopen_review(prog, o["inv"], note, typed_confirm, via)
+    if verb == "resolve":
         if not o["note"]:
-            raise CraftError('`craft untaint` needs --note "what happened"')
+            raise CraftError('`/craft-resolve` needs --note "what happened"')
         return untaint(prog, o["inv"], o["note"], o["accept_current"], typed_confirm, via)
     raise CraftError(f"unknown decision '{verb}'")
+
+
+def run_query(prog: Programme, verb: str, o: dict) -> str:
+    """Read-only questions the researcher may ask directly; answered without the model."""
+    from .cli_support import RESEARCHER_HELP, decisions_text, explain_text, status_text
+
+    if verb == "status":
+        return status_text(prog)
+    if verb == "help":
+        return RESEARCHER_HELP
+    if verb == "decisions":
+        return decisions_text(prog, o["inv"])
+    if verb == "explain":
+        text, _broken = explain_text(prog, o["arg"])
+        return text
+    raise CraftError(f"unknown query '{verb}'")
+
+
+def pending_subject(prog: Programme, inv_id: str | None, verb: str) -> str:
+    """What is awaiting the researcher right now: 'problem' (framing) or 'package' (pending proposal)."""
+    inv, state = _ctx(prog, inv_id)
+    if state.env.pending_proposal:
+        return "package"
+    if verb == "approve" and state.phase == Phase.FRAMING:
+        return "problem"
+    who, cmd, why = state.next_action()
+    raise CraftError(
+        f"nothing awaits your {verb} in {state.id} (phase {state.phase.value}): {why}. "
+        + (f"Waiting on the {who}: `{cmd}`." if who != "nobody" else "")
+    )

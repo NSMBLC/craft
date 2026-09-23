@@ -35,7 +35,7 @@ def _setup(programme: Craft, hyp: str) -> None:
 @pytest.mark.checkpoint("4.2")
 def test_real_referee_finds_planted_tuning_asymmetry(programme: Craft):
     _setup(programme, HYP_PLANTED)
-    r = programme("review", "request", env={"CRAFT_REFEREE_BACKEND": "claude"})
+    r = programme("review", env={"CRAFT_REFEREE_BACKEND": "claude"})
     print(r.text)
     assert r.code == 0, r.text
     data = json.loads((programme.root / "investigations" / "inv-001" / "review" / "round-1.json").read_text())
@@ -50,7 +50,7 @@ def test_real_referee_finds_planted_tuning_asymmetry(programme: Craft):
 @pytest.mark.checkpoint("4.7")
 def test_real_referee_does_not_invent_problems(programme: Craft):
     _setup(programme, HYP_FIXED_O2)
-    r = programme("review", "request", env={"CRAFT_REFEREE_BACKEND": "claude"})
+    r = programme("review", env={"CRAFT_REFEREE_BACKEND": "claude"})
     print(r.text)
     assert r.code == 0, r.text
     data = json.loads((programme.root / "investigations" / "inv-001" / "review" / "round-1.json").read_text())

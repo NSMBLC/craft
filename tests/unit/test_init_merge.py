@@ -42,6 +42,6 @@ def test_init_installs_decision_skills(tmp_path):
     root = tmp_path / "p"; root.mkdir()
     c = Craft(root)
     assert c("init", "--path", str(root)).code == 0
-    for name in ("craft", "craft-approve", "craft-close", "craft-reject", "craft-reopen", "craft-untaint"):
+    for name in ("craft", "craft-approve", "craft-reject", "craft-close", "craft-reopen", "craft-resolve", "craft-status", "craft-help", "craft-decisions", "craft-explain"):
         assert (root / ".claude" / "skills" / name / "SKILL.md").exists(), name
     assert "nothing to do" in c("init", "--path", str(root)).out

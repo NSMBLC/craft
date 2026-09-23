@@ -9,16 +9,16 @@
       "Bash(craft validate:*)",
       "Bash(craft lint:*)",
       "Bash(craft lit:*)",
-      "Bash(craft review request:*)",
       "Bash(craft review respond:*)",
       "Bash(craft review show:*)",
-      "Bash(craft env init:*)",
-      "Bash(craft env propose:*)",
       "Bash(craft verdict:*)",
-      "Bash(craft finish:*)",
       "Bash(craft explain:*)",
-      "Bash(craft attention:*)",
-      "Bash(craft verify:*)"
+      "Bash(craft verify:*)",
+      "Bash(craft review:*)",
+      "Bash(craft literature:*)",
+      "Bash(craft lock:*)",
+      "Bash(craft propose package:*)",
+      "Bash(craft decisions:*)"
     ],
     "deny": [
       "Edit(./.claude/**)",

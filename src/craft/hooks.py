@@ -114,30 +114,49 @@ def _typed_decision(prog: Programme, payload: dict, prompt: str) -> str | None:
     if payload.get("hook_event_name") not in (None, "UserPromptSubmit"):
         return None
     verb, opts = parsed
-    head = [f"<craft-decision>", f"The researcher typed the decision `{verb}` ({prompt.strip()}). CRAFT executed it directly "
+    if verb in decisions.QUERY_VERBS:
+        try:
+            answer = decisions.run_query(prog, verb, opts)
+        except CraftError as e:
+            answer = f"REFUSED: {e}"
+        return "\n".join([
+            "<craft-info>",
+            f"The researcher typed `{prompt.strip()}`. CRAFT answered it directly; show the answer below verbatim "
+            "(no tool calls, no additions) and then stop.",
+            answer,
+            "</craft-info>",
+        ])
+    head = [f"<craft-decision>", f"The researcher typed the decision `{prompt.strip()}`. CRAFT executed it directly "
             "(this is the researcher's channel). Do NOT run the command yourself. Report the outcome below."]
     try:
         result = decisions.run_typed(prog, verb, opts)
         body = result
-        tail = NEXT_STEP.get(verb, "")
+        tail = _next_step(verb, opts, result)
     except CraftError as e:
         body = f"REFUSED: {e}"
         tail = "Explain the refusal and what must change; do not retry the decision yourself."
     return "\n".join(head + [body, tail, "</craft-decision>"])
 
 
-# What the agent does after each decision. Pre-freeze phases are collaborative: propose, then wait.
-# Execution (after approve package) runs itself. Closure ends the investigation.
-NEXT_STEP = {
-    "approve problem": ("Then propose the literature scope in a few lines (which venues/years/keywords, what is "
-                        "out of scope) and WAIT for the researcher's go-ahead before searching or drafting anything."),
-    "approve package": "Then resume execution where it halted, without asking.",
-    "reject package": "Then continue execution with the current environment, or report what cannot be done without the change.",
-    "close": "Then summarise what went to findings, refuted and open questions. Do not start a new investigation unprompted.",
-    "reopen problem": "Then ask what the researcher wants changed in problem.md; do not edit it on your own.",
-    "reopen review": "Then request the new review round only when the researcher says the design is ready.",
-    "untaint": "Then report the current phase and wait.",
-}
+def _next_step(verb: str, opts: dict, result: str) -> str:
+    """What the agent does after each decision. Pre-freeze phases are collaborative: propose,
+    then wait. Execution (after a package approval) runs itself. Closure ends the investigation."""
+    if verb == "approve":
+        if "Environment is now" in result:
+            return "Then resume execution where it halted, without asking."
+        return ("Then propose the literature scope in a few lines (which venues/years/keywords, what is "
+                "out of scope) and WAIT for the researcher's go-ahead before searching or drafting anything.")
+    if verb == "reject":
+        return "Then continue execution with the current environment, or report what cannot be done without the change."
+    if verb == "close":
+        return "Then summarise what went to findings, refuted and open questions. Do not start a new investigation unprompted."
+    if verb == "reopen":
+        if opts.get("subject") == "problem":
+            return "Then ask what the researcher wants changed in problem.md; do not edit it on your own."
+        return "Then request the new review round only when the researcher says the design is ready."
+    if verb == "resolve":
+        return "Then report the current phase and wait."
+    return ""
 
 
 def session_start() -> int:
@@ -153,7 +172,7 @@ def session_start() -> int:
     if problems:
         lines.append("INTEGRITY PROBLEMS (report to the researcher before anything else):")
         lines += [f"- {p}" for p in problems]
-    lines.append("Use `craft status`, `craft recall`, `craft validate`. Researcher-only: approve/close/reopen/untaint.")
+    lines.append("Agent: `craft status`, `craft recall`, `craft validate`. Researcher: type /craft-help for your commands.")
     lines.append("</craft-status>")
     print("\n".join(lines))
     return 0

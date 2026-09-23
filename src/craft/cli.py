@@ -20,7 +20,7 @@ from .artifacts.hypothesis import criteria_table, validate_hypothesis
 from .artifacts.literature import add_source, lint_priority_claims, load_sources, validate_literature
 from .artifacts.problem import kill_criteria, validate_problem
 from .artifacts.verdict import compare, extract, label_for, load_evidence, render_verdict
-from .cli_support import pick_investigation, status_text, verify_all, verify_investigation
+from .cli_support import decisions_text, explain_text, pick_investigation, status_text, verify_all, verify_investigation
 from .freeze import freeze_file, thaw_file
 from .human import confirm, require_human
 from .paths import DEFAULT_CONFIG, PROGRAMME_MARKER, InvestigationPaths, Programme, find_programme_root
@@ -30,13 +30,12 @@ from .util import CraftError, join_frontmatter, now_iso, read_doc, sha256_file, 
 
 app = typer.Typer(help="CRAFT: disciplined computational research inside a GenAI session.", no_args_is_help=True,
                   add_completion=False)
-lit_app = typer.Typer(help="Literature map (Journey 2).", no_args_is_help=True)
-review_app = typer.Typer(help="Independent review rounds (Journey 4).", no_args_is_help=True)
-env_app = typer.Typer(help="Locked environment (Journey 6.1).", no_args_is_help=True)
-reopen_app = typer.Typer(help="Researcher-only: reopen an approved document or an exhausted review.", no_args_is_help=True)
-app.add_typer(lit_app, name="lit")
+lit_app = typer.Typer(help="Literature map: sources read in full vs consulted-and-rejected (Journey 2).", no_args_is_help=True)
+review_app = typer.Typer(help="Independent review (Journey 4). `craft review` requests a round.", invoke_without_command=True)
+reopen_app = typer.Typer(help="RESEARCHER ONLY. Reopen an approved problem statement or an exhausted review.", no_args_is_help=True)
+app.add_typer(lit_app, name="literature")
+app.add_typer(lit_app, name="lit", hidden=True)
 app.add_typer(review_app, name="review")
-app.add_typer(env_app, name="env")
 app.add_typer(reopen_app, name="reopen")
 
 INV_OPT = typer.Option(None, "--inv", help="Investigation id (defaults to the only open one).")
@@ -101,8 +100,8 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
         echo(f"  + {c}")
     if not created:
         echo("  (nothing to do; already initialised)")
-    echo("Next: open your GenAI session here. Your decisions are slash commands: "
-         "/craft-approve problem, /craft-approve package, /craft-reject package, /craft-close, /craft-reopen ..., /craft-untaint.")
+    echo("Next: open your GenAI session here and type /craft-help to see your commands "
+         "(/craft-approve, /craft-reject, /craft-close, /craft-reopen, /craft-resolve, /craft-status).")
 
 
 def _install_claude_code_adapter(root: Path) -> list[str]:
@@ -139,10 +138,11 @@ def _install_claude_code_adapter(root: Path) -> list[str]:
     else:
         cm.write_text(block, encoding="utf-8")
         created.append("CLAUDE.md")
-    retired = claude_dir / "skills" / "craft-env" / "SKILL.md"
-    if retired.exists() and "Researcher decision" in retired.read_text(encoding="utf-8"):
-        shutil.rmtree(retired.parent)
-        created.append("removed retired .claude/skills/craft-env")
+    for name in ("craft-env", "craft-untaint"):
+        retired = claude_dir / "skills" / name / "SKILL.md"
+        if retired.exists() and "Researcher decision" in retired.read_text(encoding="utf-8"):
+            shutil.rmtree(retired.parent)
+            created.append(f"removed retired .claude/skills/{name}")
     for skill in adapter.joinpath("skills").iterdir():
         src = skill.joinpath("SKILL.md")
         if not src.is_file():
@@ -256,30 +256,40 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
     if acks:
         echo(f"Recorded {len(acks)} memory acknowledgement(s) in problem.md.")
     echo("Next: interview the researcher about readers and fill problem.md; `craft validate problem`; "
-         "then the researcher types `/craft-approve problem`.")
+         "then the researcher types `/craft-approve`.")
 
 
 # ------------------------------------------------------------------ validate / lint
 
 @app.command()
-def validate(artifact: str = typer.Argument(..., help="problem | hypothesis | literature | all"),
+def validate(artifact: str = typer.Argument("all", help="problem | hypothesis | literature | all (default)"),
              inv_id: Optional[str] = INV_OPT) -> None:
-    """Check an artifact against its required shape. Reports; never rewrites."""
+    """Check artifacts against their required shape. Reports; never rewrites."""
     prog, inv, state = _ctx(inv_id)
     results = []
     if artifact in ("problem", "all"):
         results.append(validate_problem(inv.problem, int(prog.config["limits"]["problem_max_words"])))
     if artifact in ("hypothesis", "all"):
-        if not inv.hypothesis.exists():
+        if inv.hypothesis.exists():
+            results.append(validate_hypothesis(inv.hypothesis))
+        elif artifact == "hypothesis":
             raise CraftError("hypothesis.md does not exist yet")
-        results.append(validate_hypothesis(inv.hypothesis))
     if artifact in ("literature", "all"):
-        results.append(validate_literature(inv.sources))
+        if inv.sources.exists() or artifact == "literature":
+            results.append(validate_literature(inv.sources))
     if not results:
         raise CraftError("artifact must be problem, hypothesis, literature or all")
+    ok = True
     for r in results:
         echo(r.render())
-    if not all(r.ok for r in results):
+        ok = ok and r.ok
+    if artifact == "all":
+        for doc in (inv.problem, inv.hypothesis, inv.lit_map):
+            if doc.exists():
+                for prob in lint_priority_claims(doc, inv.sources):
+                    echo(f"  [error] {doc.name}: {prob}")
+                    ok = False
+    if not ok:
         raise typer.Exit(code=1)
 
 
@@ -336,28 +346,36 @@ def lit_closest(key: str, delta: str = typer.Option(..., "--delta", help="One pa
 # ------------------------------------------------------------------ approve (human)
 
 @app.command()
-def approve(what: str = typer.Argument(..., help="problem | package"), inv_id: Optional[str] = INV_OPT,
-            note: str = typer.Option("", "--note"),
+def approve(what: Optional[str] = typer.Argument(None, help="problem | package (default: whatever is pending)"),
+            inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"),
             lock: Optional[Path] = typer.Option(None, "--lock", help="(package) new lock file; default appends the package line.")) -> None:
-    """RESEARCHER ONLY. Approve the problem statement (freezes it) or a proposed package addition."""
-    if what == "problem":
-        require_human("approve problem")
-        echo(_decide(lambda prog: decisions.approve_problem(prog, inv_id, note, _tty_confirm, "terminal")))
-    elif what == "package":
-        require_human("approve package")
-        echo(_decide(lambda prog: decisions.env_approve(prog, inv_id, lock, _tty_confirm, "terminal")))
-    else:
-        raise CraftError("`craft approve problem` or `craft approve package`; designs are frozen by review, not approval")
+    """RESEARCHER ONLY. Approve what the agent is waiting on: the problem statement or a package proposal."""
+    require_human("approve")
+    if what not in (None, "problem", "package"):
+        raise CraftError("`craft approve [problem|package]`; designs are frozen by review, not approval")
+
+    def run(prog):
+        subject = what or decisions.pending_subject(prog, inv_id, "approve")
+        if subject == "problem":
+            return decisions.approve_problem(prog, inv_id, note, _tty_confirm, "terminal")
+        return decisions.env_approve(prog, inv_id, lock, _tty_confirm, "terminal")
+
+    echo(_decide(run))
 
 
 @app.command()
-def reject(what: str = typer.Argument(..., help="package"), note: str = typer.Option(..., "--note"),
+def reject(what: Optional[str] = typer.Argument(None, help="package"), note: str = typer.Option(..., "--note"),
            inv_id: Optional[str] = INV_OPT) -> None:
-    """RESEARCHER ONLY. Reject the pending package proposal; execution continues with the current environment."""
-    if what != "package":
-        raise CraftError("only `craft reject package` exists")
-    require_human("reject package")
-    echo(_decide(lambda prog: decisions.env_reject(prog, inv_id, note, "terminal")))
+    """RESEARCHER ONLY. Refuse the pending package proposal; execution continues with the current environment."""
+    if what not in (None, "package"):
+        raise CraftError("only a package proposal can be rejected")
+    require_human("reject")
+
+    def run(prog):
+        decisions.pending_subject(prog, inv_id, "reject")
+        return decisions.env_reject(prog, inv_id, note, "terminal")
+
+    echo(_decide(run))
 
 
 def _tty_confirm(preview: str) -> bool:
@@ -378,9 +396,16 @@ def _decide(fn) -> str:
 
 # ------------------------------------------------------------------ review
 
-@review_app.command("request")
+@review_app.callback()
+def review_root(ctx: typer.Context, inv_id: Optional[str] = INV_OPT) -> None:
+    """Run the independent referee on the design (`craft review`). Freezes the hypothesis on a clean pass."""
+    if ctx.invoked_subcommand is None:
+        review_request(inv_id)
+
+
+@review_app.command("request", hidden=True)
 def review_request(inv_id: Optional[str] = INV_OPT) -> None:
-    """Run the independent referee on the design. Freezes the hypothesis on a clean pass."""
+    """Alias of `craft review`."""
     prog, inv, state = _ctx(inv_id)
     state.require_untainted("request review")
     state.require_phase(Phase.DESIGNING, Phase.RESPONDING, action="request review")
@@ -390,7 +415,7 @@ def review_request(inv_id: Optional[str] = INV_OPT) -> None:
         raise CraftError(
             f"review is capped at {limit} rounds and round {limit} left blocking objections unresolved "
             f"({', '.join(state.open_blocking)}). The remaining items must be genuinely fixed, then a "
-            "researcher runs `craft reopen review` to start a fresh cycle. Arguing them down is not a path."
+            "researcher types `/craft-reopen review` to start a fresh cycle. Arguing them down is not a path."
         )
     hv = validate_hypothesis(inv.hypothesis)
     if not hv.ok:
@@ -466,10 +491,10 @@ def review_request(inv_id: Optional[str] = INV_OPT) -> None:
     state.save(inv.root)
     echo(f"{len(rnd.blocking_open)} blocking objection(s) open: {', '.join(rnd.blocking_open)}.")
     if state.review.exhausted:
-        echo("Round cap reached: these must be genuinely fixed; then a researcher runs `craft reopen review`.")
+        echo("Round cap reached: these must be genuinely fixed; then the researcher types `/craft-reopen review`.")
     else:
         echo("Change the design, then `craft review respond <id> --pointer <doc#section> --note ...` for each, "
-             "and request round 2.")
+             "then `craft review` again for round 2.")
 
 
 def _run_checked(cfg, sys_p, user_p, schema, n, checker) -> dict:
@@ -516,30 +541,33 @@ def review_show(inv_id: Optional[str] = INV_OPT) -> None:
 
 # ------------------------------------------------------------------ env
 
-@env_app.command("init")
-def env_init(lock: Path = typer.Argument(..., help="Lock file to record (uv.lock, requirements.txt, environment.yml)."),
-             inv_id: Optional[str] = INV_OPT) -> None:
-    """Record the locked environment before execution starts (replaces the empty v1 lock)."""
+@app.command()
+def lock(file: Path = typer.Argument(..., help="Lock file to record (uv.lock, requirements.txt, environment.yml)."),
+         inv_id: Optional[str] = INV_OPT) -> None:
+    """Record the locked environment before execution starts (replaces the empty initial lock)."""
     prog, inv, state = _ctx(inv_id)
     if state.phase >= Phase.EXECUTING:
-        raise CraftError("execution has started; changes go through `craft env propose`")
-    envlock.init_lock(inv, state, lock)
+        raise CraftError("execution has started; changes go through `craft propose package`")
+    envlock.init_lock(inv, state, file)
     state.save(inv.root)
     echo(f"env.lock v{state.env.version} recorded (sha256 {state.env.lock_sha256[:12]}).")
 
 
-@env_app.command("propose")
-def env_propose(package: str, reason: str = typer.Option(..., "--reason"), inv_id: Optional[str] = INV_OPT) -> None:
+@app.command()
+def propose(what: str = typer.Argument(..., help="package"), name: str = typer.Argument(..., help="Package (and version) to add."),
+            reason: str = typer.Option(..., "--reason"), inv_id: Optional[str] = INV_OPT) -> None:
     """Propose an addition to the locked environment; execution halts until the researcher approves."""
+    if what != "package":
+        raise CraftError("only `craft propose package <name> --reason ...` exists")
     prog, inv, state = _ctx(inv_id)
-    envlock.propose(inv, state, package, reason)
+    envlock.propose(inv, state, name, reason)
     state.save(inv.root)
-    echo(f"Proposed adding '{package}' (env v{state.env.version} -> v{state.env.version + 1}). "
-         "Execution is halted: no verdicts can be filed until the researcher types `/craft-approve package` (or `/craft-reject package`).")
+    echo(f"Proposed adding '{name}' (env v{state.env.version} -> v{state.env.version + 1}). "
+         "Execution is halted: no verdicts can be filed until the researcher types `/craft-approve` "
+         "(or `/craft-reject --note ...`). End your message with that command on its own line and wait.")
 
 
-
-# ------------------------------------------------------------------ verdict / finish
+# ------------------------------------------------------------------ verdict
 
 @app.command()
 def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
@@ -553,7 +581,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
     state.require_untainted("file a verdict")
     state.require_phase(Phase.EXECUTING, action="file a verdict")
     if state.env.pending_proposal:
-        raise CraftError(f"execution is halted: environment proposal '{state.env.pending_proposal['package']}' awaits `/craft-approve package` (or `/craft-reject package`).")
+        raise CraftError(f"execution is halted: package proposal '{state.env.pending_proposal['package']}' awaits the researcher's `/craft-approve` (or `/craft-reject --note ...`).")
     fm, _ = read_doc(inv.hypothesis)
     crits = criteria_table(fm)
     if criterion not in crits:
@@ -641,9 +669,11 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
         state.kill.observed = killed[1].point
         state.phase = Phase.CLOSING
         state.save(inv.root)
+        if not inv.closure.exists():
+            inv.closure.write_text(_template("closure.md").replace("{id}", state.id), encoding="utf-8")
         echo(f"KILL CRITERION {killed[0]['id']} MET ({killed[0]['condition']}; observed {killed[1].point:.6g}). "
-             "Remaining experiments are halted; the investigation is routed to closure. Write closure.md, then the "
-             "researcher runs `craft close`.")
+             "Remaining experiments are halted; the investigation is routed to closure. Fill closure.md (anomalies -> "
+             "open questions), then the researcher types `/craft-close`.")
         return
     state.save(inv.root)
     done = {v.criterion for v in state.verdicts}
@@ -651,7 +681,12 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
     if missing:
         echo(f"Criteria still without a verdict: {', '.join(missing)}.")
     else:
-        echo("Every criterion has a verdict. Run `craft finish` to route to closure.")
+        state.phase = Phase.CLOSING
+        state.save(inv.root)
+        if not inv.closure.exists():
+            inv.closure.write_text(_template("closure.md").replace("{id}", state.id), encoding="utf-8")
+        echo("Every criterion has a verdict; phase is now closing. Fill closure.md (anomalies -> open questions), "
+             "then the researcher types `/craft-close`.")
 
 
 def _metric_names(data: dict) -> set[str]:
@@ -661,22 +696,6 @@ def _metric_names(data: dict) -> set[str]:
     if data.get("metric"):
         names.add(data["metric"])
     return names
-
-
-@app.command()
-def finish(inv_id: Optional[str] = INV_OPT) -> None:
-    """Move an executing investigation to closing once every criterion has a verdict."""
-    prog, inv, state = _ctx(inv_id)
-    state.require_phase(Phase.EXECUTING, action="finish")
-    fm, _ = read_doc(inv.hypothesis)
-    missing = [c for c in criteria_table(fm) if c not in {v.criterion for v in state.verdicts}]
-    if missing:
-        raise CraftError(f"criteria without a verdict: {', '.join(missing)}. File them, or the researcher closes with --incomplete.")
-    state.phase = Phase.CLOSING
-    state.save(inv.root)
-    if not inv.closure.exists():
-        inv.closure.write_text(_template("closure.md").replace("{id}", state.id), encoding="utf-8")
-    echo("Phase: closing. Write closure.md (anomalies go to open questions), then the researcher runs `craft close`.")
 
 
 # ------------------------------------------------------------------ close (human)
@@ -689,7 +708,7 @@ def close(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"
     echo(_decide(lambda prog: decisions.close(prog, inv_id, note, incomplete, _tty_confirm, "terminal")))
 
 
-# ------------------------------------------------------------------ reopen / untaint (human)
+# ------------------------------------------------------------------ reopen / resolve (human)
 
 @reopen_app.command("problem")
 def reopen_problem(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--note")) -> None:
@@ -706,14 +725,14 @@ def reopen_review(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(...,
 
 
 @app.command()
-def untaint(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--note"),
+def resolve(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--note"),
             accept_current: bool = typer.Option(False, "--accept-current", help="Re-record hashes of the current frozen files (logged).")) -> None:
-    """RESEARCHER ONLY. Clear an integrity failure after reviewing it."""
-    require_human("untaint")
+    """RESEARCHER ONLY. Clear an integrity hold after reviewing what happened."""
+    require_human("resolve")
     echo(_decide(lambda prog: decisions.untaint(prog, inv_id, note, accept_current, _tty_confirm, "terminal")))
 
 
-# ------------------------------------------------------------------ status / explain / attention / verify
+# ------------------------------------------------------------------ status / explain / decisions / verify
 
 @app.command()
 def status(inv_id: Optional[str] = INV_OPT, as_json: bool = typer.Option(False, "--json")) -> None:
@@ -736,49 +755,16 @@ def status(inv_id: Optional[str] = INV_OPT, as_json: bool = typer.Option(False, 
 @app.command()
 def explain(entry_id: str = typer.Argument(..., help="Memory entry id, e.g. F-0001 or R-0002")) -> None:
     """Walk the chain claim -> criterion -> observed -> files, verifying every link resolves."""
-    prog = _prog()
-    rec = mem.find_entry(prog, entry_id)
-    if rec is None:
-        raise CraftError(f"no memory entry {entry_id}")
-    echo(f"[{rec['kind']}] {entry_id}: {rec.get('claim') or rec.get('question')}")
-    echo(f"  investigation: {rec.get('investigation')}  closed: {rec.get('closed', '')[:10]}")
-    lin = rec.get("lineage")
-    broken = 0
-    if not lin:
-        echo("  (no evidence lineage: this entry is an open question or anomaly)")
-        return
-    echo(f"  criterion {lin['criterion']} in experiment {lin['experiment']}: observed {lin.get('observed')} vs threshold {lin.get('threshold')}")
-    vf = prog.root / lin["verdict_file"]
-    ok = vf.exists() and (lin.get("verdict_sha256") is None or sha256_file(vf) == lin["verdict_sha256"])
-    broken += 0 if ok else 1
-    echo(f"  verdict file {lin['verdict_file']}: {'resolves' if ok else 'BROKEN'}")
-    for e in lin.get("evidence", []):
-        p = prog.root / e["path"]
-        ok = p.exists() and sha256_file(p) == e["sha256"]
-        broken += 0 if ok else 1
-        echo(f"  evidence {e['path']} (sha256 {e['sha256'][:12]}): {'resolves' if ok else 'BROKEN'}")
-    hyp = prog.archive_dir / rec["investigation"] / "hypothesis.md"
-    ok = hyp.exists() and (lin.get("hypothesis_sha256") is None or sha256_file(hyp) == lin["hypothesis_sha256"])
-    broken += 0 if ok else 1
-    echo(f"  frozen hypothesis archive/{rec['investigation']}/hypothesis.md: {'resolves' if ok else 'BROKEN'}")
-    echo(f"  env v{lin.get('env_version')}; seeds {lin.get('seeds')}; data {lin.get('data_ids')}")
+    text, broken = explain_text(_prog(), entry_id)
+    echo(text)
     if broken:
-        raise CraftError(f"{broken} link(s) do not resolve")
-    echo("Every link resolves.")
+        raise typer.Exit(code=1)
 
 
-@app.command()
-def attention(inv_id: Optional[str] = INV_OPT) -> None:
-    """The researcher's recorded decisions (what they had to read and approve)."""
-    prog = _prog()
-    ids = [inv_id] if inv_id else prog.list_investigations() + prog.list_archived()
-    for i in ids:
-        root = prog.investigation_dir(i) if prog.investigation_dir(i).exists() else prog.archive_dir / i
-        st = InvestigationState.load(root)
-        for a in st.attention:
-            echo(f"{a.when}  {i:<12} {a.kind:<18} {a.subject}  {a.note}")
-        for ack in st.acknowledgements:
-            echo(f"{ack.when}  {i:<12} {'acknowledge':<18} {ack.ref}  {ack.justification}")
+@app.command("decisions")
+def decisions_cmd(inv_id: Optional[str] = INV_OPT) -> None:
+    """The researcher's recorded decisions (what they read and approved, and through which channel)."""
+    echo(decisions_text(_prog(), inv_id))
 
 
 @app.command()
@@ -793,7 +779,7 @@ def verify() -> None:
     echo("All frozen artifacts intact.")
 
 
-@app.command()
+@app.command(hidden=True)
 def hook(event: str = typer.Argument(..., help="pre-tool-use | user-prompt-submit | session-start | stop")) -> None:
     """Claude Code hook entry point (reads the hook JSON on stdin)."""
     fn = hooks.EVENTS.get(event)

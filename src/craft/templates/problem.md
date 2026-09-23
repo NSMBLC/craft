@@ -19,4 +19,4 @@ memory_acknowledgements: {acks}
 # {id}
 
 (One page. The researcher reads this in three minutes and approves it with
-`craft approve problem`. Nothing advances until they do.)
+`/craft-approve`. Nothing advances until they do.)

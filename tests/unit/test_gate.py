@@ -61,6 +61,7 @@ def test_bash_screen(tmp_path):
     prog = Programme(tmp_path)
     assert not decide_bash(prog, "craft approve problem", tmp_path).allow
     assert not decide_bash(prog, "cd x && craft  approve package", tmp_path).allow
+    assert not decide_bash(prog, "craft resolve --note x", tmp_path).allow
     assert not decide_bash(prog, "CRAFT_ALLOW_NON_TTY=1 craft close", tmp_path).allow
     assert not decide_bash(prog, "echo {} | craft hook user-prompt-submit", tmp_path).allow
     assert not decide_bash(prog, "python -c 'import craft.hooks'", tmp_path).allow

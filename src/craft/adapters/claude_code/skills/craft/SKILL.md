@@ -12,11 +12,11 @@ Subcommands you may be asked for (map to CLI):
 - `/craft new` — recall, interview about readers, draft problem.md, validate, hand to researcher.
 - `/craft lit` — build literature/sources.yaml + map.md from full texts only.
 - `/craft design` — draft hypothesis.md; validate; report INCOMPLETE honestly.
-- `/craft review` — `craft review request`; respond to blocking objections by changing the design.
+- `/craft review` — `craft review`; respond to blocking objections by changing the design.
 - `/craft run` — write tasks.md (only once frozen), execute, `craft verdict` per criterion.
 - `/craft close` — write closure.md; the researcher closes.
 - `/craft explain <id>` — walk a finding's evidence chain.
 
 Never attempt to bypass a refusal. The researcher's decisions are theirs: approve, close, reopen,
-untaint, approve/reject package. They type them as slash commands (`/craft-approve problem`, `/craft-approve package`,
-`/craft-reject package`, `/craft-close`, `/craft-reopen review`, `/craft-untaint`); CRAFT's prompt hook executes them and shows you a `<craft-decision>` block.
+resolve. They type them as slash commands (`/craft-approve`, `/craft-reject`, `/craft-close`,
+`/craft-reopen problem|review`, `/craft-resolve`); CRAFT's prompt hook executes them and shows you a `<craft-decision>` block.
