@@ -246,8 +246,8 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
             "that `craft` command is a researcher decision (approve / close / reopen / untaint / env "
-            "approve). Ask the researcher to run it themselves, e.g. `! craft approve problem` in the "
-            "prompt or in a second terminal. The agent cannot approve on their behalf.",
+            "approve). Ask the researcher to run it themselves in a terminal outside Claude Code, in the "
+            "programme directory. The agent cannot approve on their behalf.",
             "1.6",
         )
     if not MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command)):

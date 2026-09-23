@@ -30,7 +30,9 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
    favourable result is optional stopping, which pre-registration exists to prevent.
    Run `craft validate problem`. If the researcher brings their own statement, validate it and
    report only what is missing; do not rewrite what is sound and do not re-interview.
-   Then stop: the researcher approves with `! craft approve problem`. Nothing advances before.
+   Then stop: the researcher approves by running `craft approve problem` in a terminal outside
+   Claude Code (not with `!`, which inherits the agent environment). Give them the exact
+   command with `cd <programme dir> &&` in front. Nothing advances before.
 2. **Literature** — `craft lit add <key> --title ... --fulltext <path> --claims ... --method ...
    --relation supports|conflicts|orthogonal --does-not-cover ...` only for sources whose full
    text you actually retrieved and read. Anything seen only as an abstract goes in with
@@ -54,7 +56,8 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
    the label is computed from the frozen threshold. If a kill criterion is met, `craft` halts
    execution and routes to closure: stop remaining experiments and report.
 6. **Closure** — When every criterion has a verdict (or a kill fired), write `closure.md` with
-   any anomalies, then stop: the researcher runs `! craft close`. Memory is written only there.
+   any anomalies, then stop: the researcher runs `craft close` in a terminal outside Claude Code.
+   Memory is written only there.
 
 ## When the researcher pushes back
 - "Lower the threshold / fix the typo in the frozen document": refuse, state the

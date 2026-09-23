@@ -101,7 +101,8 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
         echo(f"  + {c}")
     if not created:
         echo("  (nothing to do; already initialised)")
-    echo("Next: open your GenAI session here. Researcher-only commands: craft approve / close / reopen / untaint.")
+    echo("Next: open your GenAI session here. Researcher-only commands (run in a terminal outside the session): "
+         "craft approve / close / reopen / untaint / env approve.")
 
 
 def _install_claude_code_adapter(root: Path) -> list[str]:
@@ -246,7 +247,7 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
     if acks:
         echo(f"Recorded {len(acks)} memory acknowledgement(s) in problem.md.")
     echo("Next: interview the researcher about readers and fill problem.md; `craft validate problem`; "
-         "then the researcher runs `craft approve problem`.")
+         "then the researcher runs `craft approve problem` in a terminal outside the session.")
 
 
 # ------------------------------------------------------------------ validate / lint

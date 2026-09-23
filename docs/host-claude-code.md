@@ -33,12 +33,15 @@ Note on model behaviour: with the CRAFT `CLAUDE.md` present, the model refused e
 on its own before any hook fired. The hook results above were obtained with `CLAUDE.md`
 temporarily removed, so they demonstrate the mechanical layer alone.
 
-## Still to verify by the researcher (needs an interactive session)
+## Verified by the researcher (2026-09-22)
 
-- Whether `! craft approve problem` typed in the Claude Code prompt runs with a TTY on stdin.
-  If not, the command prints "needs an interactive terminal"; run it in a second terminal.
-  Either way the agent cannot run it (hook + env check + TTY check).
-- Whether `! …` bash mode bypasses PreToolUse hooks (expected: yes, it is not a tool call).
+- `! craft approve problem` typed in the Claude Code prompt is refused by the CLI: `!` commands
+  inherit the session environment, including `CLAUDECODE`, so they are indistinguishable from
+  the agent's own Bash calls. Researcher-only commands must be run in a terminal outside the
+  session. All messages now say so.
+- `! …` bash mode does not trigger PreToolUse hooks (the refusal came from the CLI, not the hook).
+
+## Still to verify
 - Whether a `Stop` hook returning `{"decision":"block"}` is honoured in the current version.
   If not, the integrity report still arrives at SessionStart and before every transition.
 

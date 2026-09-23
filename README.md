@@ -40,7 +40,8 @@ agent playbook, and a `/craft` skill. It never overwrites files you already have
 
 Talk to the agent in plain language. It runs `craft recall`, `craft new`, `craft validate`,
 `craft lit add`, `craft review request`, `craft verdict` and so on. You read one-page artifacts
-and make five kinds of decisions, each in your own terminal (or as `! craft …` in the prompt):
+and make five kinds of decisions, each in a terminal of your own, outside the Claude Code session
+(commands typed with `!` inherit the agent's environment and are refused):
 
 ```
 craft approve problem     # after reading the one-page statement
@@ -51,7 +52,7 @@ craft untaint
 ```
 
 The agent cannot run these: the hook denies them, the CLI refuses inside an agent tool call,
-and they need an interactive terminal.
+and they need an interactive terminal. Keep a second terminal open in the programme directory.
 
 ## Layout of a programme
 

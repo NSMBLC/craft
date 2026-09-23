@@ -18,4 +18,4 @@ Subcommands you may be asked for (map to CLI):
 - `/craft explain <id>` — walk a finding's evidence chain.
 
 Never attempt to bypass a refusal. The researcher's decisions are theirs: approve, close, reopen,
-untaint, env approve.
+untaint, env approve. They run those in a terminal outside Claude Code; give them the exact command.
