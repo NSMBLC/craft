@@ -145,12 +145,6 @@ def _merge_settings(current: dict, ours: dict) -> bool:
     changed = False
     perms = current.setdefault("permissions", {})
     deny = perms.setdefault("deny", [])
-    # Claude Code matches file rules only as Edit(path); earlier adapters also wrote Write(path)
-    # rules, which trigger a warning at session start. Drop those.
-    stale = [r for r in deny if r.startswith("Write(") and r.replace("Write(", "Edit(", 1) in ours["permissions"]["deny"]]
-    for r in stale:
-        deny.remove(r)
-        changed = True
     for rule in ours["permissions"]["deny"]:
         if rule not in deny:
             deny.append(rule)
@@ -159,8 +153,8 @@ def _merge_settings(current: dict, ours: dict) -> bool:
     for event, groups in ours["hooks"].items():
         existing = hooks_cfg.setdefault(event, [])
         for g in groups:
-            present = {(eg.get("matcher"), h.get("command")) for eg in existing for h in eg.get("hooks", [])}
-            if not all((g.get("matcher"), h["command"]) in present for h in g["hooks"]):
+            cmds = {h.get("command") for eg in existing for h in eg.get("hooks", [])}
+            if not all(h["command"] in cmds for h in g["hooks"]):
                 existing.append(g)
                 changed = True
     return changed
