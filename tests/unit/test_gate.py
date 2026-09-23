@@ -68,3 +68,13 @@ def test_bash_screen(tmp_path):
     assert decide_bash(prog, "cat memory/findings.jsonl", tmp_path).allow
     assert decide_bash(prog, "craft status && craft recall 'x'", tmp_path).allow
     assert decide_bash(prog, "python train.py --out results/run1.json", tmp_path).allow
+
+
+def test_bash_screen_ignores_harmless_redirects(tmp_path):
+    (tmp_path / "craft.yaml").write_text("version: 1\n")
+    prog = Programme(tmp_path)
+    assert decide_bash(prog, "ls -la .claude 2>&1 | head", tmp_path).allow
+    assert decide_bash(prog, "cat .claude/settings.json 2>/dev/null", tmp_path).allow
+    assert decide_bash(prog, "craft verify >/dev/null 2>&1; cat memory/findings.jsonl", tmp_path).allow
+    assert not decide_bash(prog, "echo x > .claude/settings.json 2>&1", tmp_path).allow
+    assert not decide_bash(prog, "cat x >> memory/findings.jsonl", tmp_path).allow

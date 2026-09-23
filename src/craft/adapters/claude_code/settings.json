@@ -1,5 +1,25 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(craft --help)",
+      "Bash(craft status:*)",
+      "Bash(craft recall:*)",
+      "Bash(craft new:*)",
+      "Bash(craft validate:*)",
+      "Bash(craft lint:*)",
+      "Bash(craft lit:*)",
+      "Bash(craft review request:*)",
+      "Bash(craft review respond:*)",
+      "Bash(craft review show:*)",
+      "Bash(craft env init:*)",
+      "Bash(craft env propose:*)",
+      "Bash(craft verdict:*)",
+      "Bash(craft finish:*)",
+      "Bash(craft explain:*)",
+      "Bash(craft attention:*)",
+      "Bash(craft verify:*)",
+      "Bash(craft hook:*)"
+    ],
     "deny": [
       "Edit(./.claude/**)",
       "Edit(./craft.yaml)",

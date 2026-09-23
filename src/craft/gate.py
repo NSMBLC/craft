@@ -19,6 +19,8 @@ HUMAN_ONLY = ("approve", "close", "reopen", "untaint")  # `craft <verb>` and `cr
 HUMAN_ONLY_RE = re.compile(
     r"\bcraft\b[^;&|\n]*?\b(approve|close|reopen|untaint)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
 )
+# `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null` are not file writes
+HARMLESS_REDIRECT_RE = re.compile(r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null")
 MUTATION_RE = re.compile(
     r"(?<![<>])>{1,2}(?!>)|\btee\b|\bmv\b|\bcp\b|\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
     r"\btruncate\b|\bln\b|\bmkdir\b|\brmdir\b|\bpatch\b|\bgit\s+(checkout|restore|reset|clean|stash)\b|"
@@ -248,7 +250,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
             "prompt or in a second terminal. The agent cannot approve on their behalf.",
             "1.6",
         )
-    if not MUTATION_RE.search(command):
+    if not MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command)):
         return Decision.ok()
     base = cwd or Path.cwd()
     try:

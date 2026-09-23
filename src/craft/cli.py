@@ -155,6 +155,11 @@ def _merge_settings(current: dict, ours: dict) -> bool:
         if rule not in deny:
             deny.append(rule)
             changed = True
+    allow = perms.setdefault("allow", [])
+    for rule in ours["permissions"].get("allow", []):
+        if rule not in allow:
+            allow.append(rule)
+            changed = True
     hooks_cfg = current.setdefault("hooks", {})
     for event, groups in ours["hooks"].items():
         existing = hooks_cfg.setdefault(event, [])
