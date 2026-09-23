@@ -101,8 +101,8 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
         echo(f"  + {c}")
     if not created:
         echo("  (nothing to do; already initialised)")
-    echo("Next: open your GenAI session here. Your decisions are typed as plain messages: "
-         "craft approve problem / craft close / craft env approve / craft reopen ... / craft untaint.")
+    echo("Next: open your GenAI session here. Your decisions are slash commands: "
+         "/craft-approve problem, /craft-close, /craft-env approve, /craft-reopen problem|review, /craft-untaint.")
 
 
 def _install_claude_code_adapter(root: Path) -> list[str]:
@@ -139,12 +139,17 @@ def _install_claude_code_adapter(root: Path) -> list[str]:
     else:
         cm.write_text(block, encoding="utf-8")
         created.append("CLAUDE.md")
-    skill_dir = claude_dir / "skills" / "craft"
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    sk = skill_dir / "SKILL.md"
-    if not sk.exists():
-        sk.write_text(adapter.joinpath("skills/craft/SKILL.md").read_text(encoding="utf-8"), encoding="utf-8")
-        created.append(".claude/skills/craft/SKILL.md")
+    for skill in adapter.joinpath("skills").iterdir():
+        src = skill.joinpath("SKILL.md")
+        if not src.is_file():
+            continue
+        skill_dir = claude_dir / "skills" / skill.name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        sk = skill_dir / "SKILL.md"
+        content = src.read_text(encoding="utf-8")
+        if not sk.exists() or (skill.name != "craft" and sk.read_text(encoding="utf-8") != content):
+            sk.write_text(content, encoding="utf-8")
+            created.append(f".claude/skills/{skill.name}/SKILL.md")
     return created
 
 
@@ -247,7 +252,7 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
     if acks:
         echo(f"Recorded {len(acks)} memory acknowledgement(s) in problem.md.")
     echo("Next: interview the researcher about readers and fill problem.md; `craft validate problem`; "
-         "then the researcher types `craft approve problem` as a message.")
+         "then the researcher types `/craft-approve problem`.")
 
 
 # ------------------------------------------------------------------ validate / lint

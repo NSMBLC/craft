@@ -247,7 +247,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
             "that `craft` command is a researcher decision (approve / close / reopen / untaint / env "
-            "approve). Ask the researcher to type it as a plain message (e.g. `craft approve problem`); "
+            "approve). Ask the researcher to type it as a slash command (e.g. `/craft-approve problem`); "
             "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",
         )

@@ -35,3 +35,13 @@ def test_init_refreshes_claude_md_block_but_keeps_user_text(tmp_path):
     assert "keep me" in text and "also keep" in text and "old playbook" not in text and "Kill criteria" in text
     assert text.count("<!-- craft:begin -->") == 1
     assert "nothing to do" in c("init", "--path", str(root)).out
+
+
+def test_init_installs_decision_skills(tmp_path):
+    from tests.conftest import Craft
+    root = tmp_path / "p"; root.mkdir()
+    c = Craft(root)
+    assert c("init", "--path", str(root)).code == 0
+    for name in ("craft", "craft-approve", "craft-close", "craft-env", "craft-reopen", "craft-untaint"):
+        assert (root / ".claude" / "skills" / name / "SKILL.md").exists(), name
+    assert "nothing to do" in c("init", "--path", str(root)).out

@@ -114,7 +114,7 @@ def _typed_decision(prog: Programme, payload: dict, prompt: str) -> str | None:
     if payload.get("hook_event_name") not in (None, "UserPromptSubmit"):
         return None
     verb, opts = parsed
-    head = [f"<craft-decision>", f"The researcher typed `craft {verb}` as a message. CRAFT executed it directly "
+    head = [f"<craft-decision>", f"The researcher typed the decision `{verb}` ({prompt.strip()}). CRAFT executed it directly "
             "(this is the researcher's channel). Do NOT run the command yourself; report the outcome below and continue."]
     try:
         result = decisions.run_typed(prog, verb, opts)

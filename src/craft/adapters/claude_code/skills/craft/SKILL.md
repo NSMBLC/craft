@@ -18,5 +18,5 @@ Subcommands you may be asked for (map to CLI):
 - `/craft explain <id>` — walk a finding's evidence chain.
 
 Never attempt to bypass a refusal. The researcher's decisions are theirs: approve, close, reopen,
-untaint, env approve. They type those commands as plain messages (e.g. `craft approve problem`);
-CRAFT's prompt hook executes them and shows you a `<craft-decision>` block.
+untaint, env approve. They type them as slash commands (`/craft-approve problem`, `/craft-close`, `/craft-env approve`,
+`/craft-reopen review`, `/craft-untaint`); CRAFT's prompt hook executes them and shows you a `<craft-decision>` block.

@@ -189,8 +189,9 @@ def untaint(prog: Programme, inv_id: str | None, note: str, accept_current: bool
 
 # ------------------------------------------------------------- typed-prompt dispatch
 
+# Accepted forms: `/craft-approve problem` (slash skill), `/craft approve problem`, `craft approve problem`
 TYPED_RE = re.compile(
-    r"^\s*craft\s+(approve\s+problem|close|env\s+approve|env\s+reject|reopen\s+problem|reopen\s+review|untaint)\b(.*)$",
+    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve\s+problem|close|env\s+approve|env\s+reject|reopen\s+problem|reopen\s+review|untaint)\b(.*)$",
     re.S,
 )
 
