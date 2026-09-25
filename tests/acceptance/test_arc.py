@@ -551,6 +551,7 @@ def test_23_close_routes_mixed_outcome(arc: Craft):
     arch = arc.root / "archive" / INV
     assert (arch / "hypothesis.md").exists() and (arch / "experiments" / "exp1" / "verdict-C1.md").exists()
     assert not os.access(arch / "hypothesis.md", os.W_OK)
+    assert os.access(arch, os.W_OK)  # directories stay writable so git and rm -rf keep working
     assert findings[0]["lineage"]["verdict_file"].startswith(f"archive/{INV}/")
 
 

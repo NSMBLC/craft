@@ -23,14 +23,14 @@ def thaw_file(path: Path) -> None:
 
 
 def freeze_tree(root: Path) -> None:
+    """Make every file under root read-only. Directories stay writable on purpose: read-only
+    directories break git checkout/clean and `rm -rf` in the researcher's own repo, and the
+    integrity guarantee rests on file modes + recorded hashes + the hook/permission denies."""
     for dirpath, dirnames, filenames in os.walk(root):
         for f in filenames:
             p = Path(dirpath) / f
             if not p.is_symlink():
                 p.chmod(0o444)
-    # directories read-only last so we can still traverse
-    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
-        Path(dirpath).chmod(0o555)
 
 
 def is_read_only(path: Path) -> bool:
