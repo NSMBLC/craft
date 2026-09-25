@@ -81,3 +81,14 @@ def test_bash_screen_ignores_harmless_redirects(tmp_path):
     assert decide_bash(prog, "craft verify >/dev/null 2>&1; cat memory/findings.jsonl", tmp_path).allow
     assert not decide_bash(prog, "echo x > .claude/settings.json 2>&1", tmp_path).allow
     assert not decide_bash(prog, "cat x >> memory/findings.jsonl", tmp_path).allow
+
+
+def test_bash_screen_ignores_emails_and_arrows(tmp_path):
+    (tmp_path / "craft.yaml").write_text("version: 1\n")
+    prog = Programme(tmp_path.resolve())
+    cmd = ('git add .claude CLAUDE.md craft.yaml memory && git commit -q -m "Initialize CRAFT scaffolding\n\n'
+           'Co-Authored-By: Claude <noreply@anthropic.com>" && git log --oneline --stat | head -30')
+    assert decide_bash(prog, cmd, tmp_path.resolve()).allow
+    assert decide_bash(prog, 'git commit -m "craft init -> scaffolding; a => b" craft.yaml', tmp_path.resolve()).allow
+    d = decide_bash(prog, "echo x > craft.yaml", tmp_path.resolve())
+    assert not d.allow and "looked like a write because of `>`" in d.reason

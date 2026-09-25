@@ -20,8 +20,11 @@ HUMAN_ONLY_RE = re.compile(
     r"\bcraft\b[^;&|\n]*?\b(approve|reject|close|reopen|resolve|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
     r"|\buser-prompt-submit\b|\bhooks\.py\b|\bcraft\.hooks\b|\bcraft\.decisions\b|\bdecisions\.py\b"
 )
-# `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null` are not file writes
-HARMLESS_REDIRECT_RE = re.compile(r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null")
+# Not file writes: `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null`, an email in angle
+# brackets (`<name@host>` in commit trailers), and `->` / `=>` arrows in prose.
+HARMLESS_REDIRECT_RE = re.compile(
+    r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null|<[^<>\s]+@[^<>\s]+>|[-=]>"
+)
 MUTATION_RE = re.compile(
     r"(?<![<>])>{1,2}(?!>)|\btee\b|\bmv\b|\bcp\b|\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
     r"\btruncate\b|\bln\b|\bmkdir\b|\brmdir\b|\bpatch\b|\bgit\s+(checkout|restore|reset|clean|stash)\b|"
@@ -251,7 +254,8 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
             "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",
         )
-    if not MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command)):
+    mutation = MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command))
+    if not mutation:
         return Decision.ok()
     base = cwd or Path.cwd()
     try:
@@ -274,5 +278,9 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
         seen.add(key)
         d = decide_write(prog, p)
         if not d.allow:
-            return Decision.deny(f"(shell) {d.reason}", d.checkpoint)
+            return Decision.deny(
+                f"(shell) {d.reason} [the command looked like a write because of `{mutation.group(0)}` and "
+                f"mentions `{tok}`; if it does not write that file, rephrase the command]",
+                d.checkpoint,
+            )
     return Decision.ok()
