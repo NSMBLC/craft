@@ -4,6 +4,7 @@ Evidence file (JSON or YAML) shapes accepted:
   {"metric": "acc_gain", "values": [..per-seed..], "seeds": [...], "data_id": "...", "unit": "..."}
   {"metric": "acc_gain", "value": 1.4, "ci": [1.2, 1.6], "n": 5, ...}
   {"metrics": {"acc_gain": {...as above...}, "other": {...}}, "seeds": [...], "data_id": "..."}
+  {"<metric>": 1.31, "<metric>_ci95": [1.1, 1.5]}          (flat; seeds/data_id via flags or top-level keys)
 Uncertainty is mandatory: either `values` (>=2) or `ci`.
 """
 
@@ -59,8 +60,24 @@ def extract(data: dict, metric: str) -> Measurement:
             block.setdefault(k, data.get(k))
     elif data.get("metric") == metric:
         block = data
+    elif isinstance(data.get(metric), (int, float)) and not isinstance(data.get(metric), bool):
+        # flat shape: {"<metric>": 1.31, "<metric>_ci95": [lo, hi]} or {"<metric>_values": [...]}
+        block = {"value": data[metric], "seeds": data.get("seeds"), "data_id": data.get("data_id"), "unit": data.get(f"{metric}_unit")}
+        for key in (f"{metric}_ci95", f"{metric}_ci", f"{metric}_ci_95"):
+            if isinstance(data.get(key), (list, tuple)) and len(data[key]) == 2:
+                block["ci"] = list(data[key])
+                break
+        if isinstance(data.get(f"{metric}_values"), list):
+            block["values"] = data[f"{metric}_values"]
+        if isinstance(data.get(f"{metric}_n"), int):
+            block["n"] = data[f"{metric}_n"]
+    elif isinstance(data.get(f"{metric}_values"), list):
+        block = {"values": data[f"{metric}_values"], "seeds": data.get("seeds"), "data_id": data.get("data_id"), "unit": None}
     if block is None:
-        raise CraftError(f"metric '{metric}' not found in evidence file")
+        raise CraftError(
+            f"metric '{metric}' not found in evidence file. Accepted shapes: {{\"metric\": \"{metric}\", \"values\": [...]}}, "
+            f"{{\"metrics\": {{\"{metric}\": {{...}}}}}}, or flat {{\"{metric}\": <number>, \"{metric}_ci95\": [lo, hi]}}"
+        )
     seeds = block.get("seeds")
     data_id = block.get("data_id")
     unit = block.get("unit")
