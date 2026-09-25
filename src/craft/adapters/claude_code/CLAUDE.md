@@ -55,9 +55,11 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
    execution. Never edit `env.lock`: run `craft propose package <pkg> --reason ...` and stop until
    the researcher types `/craft-approve` (or `/craft-reject --note ...`). Record results with
    `craft verdict <exp> --criterion <name> --evidence <file> --metric <key> [--exploratory <dir>]`;
-   the label is computed from the frozen threshold. When the last criterion gets its verdict, or a
-   kill criterion is met, `craft` routes the investigation to closure itself: stop remaining
-   experiments and report.
+   the label is computed from the frozen threshold. Kill criteria from `problem.md` are checked the
+   same way: `craft verdict <exp> --criterion K1 --evidence <file>` records kill-met or
+   kill-not-met (pilot evidence belongs here, never as a hypothesis-criterion verdict). When the
+   last criterion gets its verdict, or a kill criterion is met, `craft` routes the investigation
+   to closure itself: stop remaining experiments and report.
 6. **Closure** — Fill `closure.md` (anomalies -> open questions), then stop: the researcher
    types `/craft-close`. Memory is written only there.
 

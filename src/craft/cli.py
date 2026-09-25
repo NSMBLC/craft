@@ -584,8 +584,15 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
         raise CraftError(f"execution is halted: package proposal '{state.env.pending_proposal['package']}' awaits the researcher's `/craft-approve` (or `/craft-reject --note ...`).")
     fm, _ = read_doc(inv.hypothesis)
     crits = criteria_table(fm)
+    pfm, _ = read_doc(inv.problem)
+    kills = {k["id"]: k for k in kill_criteria(pfm)}
+    if criterion in kills and criterion not in crits:
+        return _kill_check(prog, inv, state, experiment, kills[criterion], evidence, metric, seed, data_id)
     if criterion not in crits:
-        raise CraftError(f"'{criterion}' is not a criterion in the frozen hypothesis ({', '.join(crits) or 'none'})")
+        raise CraftError(
+            f"'{criterion}' is neither a criterion in the frozen hypothesis ({', '.join(crits) or 'none'}) nor a "
+            f"mechanically checkable kill criterion in problem.md ({', '.join(kills) or 'none'})"
+        )
     crit = crits[criterion]
     ev = evidence.resolve()
     exp_dir = inv.experiment(experiment).resolve()
@@ -618,8 +625,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
     if not data_ids:
         raise CraftError("no data identifier: put `data_id` in the evidence file or pass --data-id")
 
-    # kill criteria check (problem.md, frozen)
-    pfm, _ = read_doc(inv.problem)
+    # kill criteria check (problem.md, frozen): any kill metric present in this evidence is evaluated too
     killed = None
     for k in kill_criteria(pfm):
         if k["metric"] in _metric_names(data):
@@ -687,6 +693,77 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion"),
             inv.closure.write_text(_template("closure.md").replace("{id}", state.id), encoding="utf-8")
         echo("Every criterion has a verdict; phase is now closing. Fill closure.md (anomalies -> open questions), "
              "then the researcher types `/craft-close`.")
+
+
+def _resolve_evidence(inv: InvestigationPaths, experiment: str, evidence: Path) -> Path:
+    ev = evidence.resolve()
+    try:
+        ev.relative_to(inv.evidence_dir(experiment).resolve())
+    except ValueError:
+        where = "exploratory" if "exploratory" in ev.parts else "outside"
+        raise CraftError(
+            f"evidence must live under experiments/{experiment}/evidence/. {ev} is {where} that area"
+            + (": exploratory numbers are never evidence for a criterion, however good they look." if where == "exploratory" else ".")
+        )
+    if not ev.exists():
+        raise CraftError(f"{ev} does not exist")
+    return ev
+
+
+def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metric, seed, data_id) -> None:
+    """Evaluate one kill criterion from problem.md against an evidence file (Journey 6.5)."""
+    ev = _resolve_evidence(inv, experiment, evidence)
+    data = load_evidence(ev)
+    m = extract(data, metric or k["metric"])
+    op, value = k["op"], float(k["value"])
+    met = compare(op, m.point, value)
+    label = "kill-met" if met else "kill-not-met"
+    seeds = seed or (m.seeds if m.seeds else [])
+    data_ids = data_id or ([m.data_id] if m.data_id else [])
+    if not seeds:
+        raise CraftError("no seeds recorded: put `seeds` in the evidence file or pass --seed (reproducibility record)")
+    if not data_ids:
+        raise CraftError("no data identifier: put `data_id` in the evidence file or pass --data-id")
+    vfm = {
+        "experiment": experiment, "criterion": k["id"], "kind": "kill-criterion", "label": label,
+        "condition": k.get("condition"), "metric": m.metric, "op": op, "value": value,
+        "observed": m.point, "ci95": [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
+        "uncertainty_source": m.source,
+        "evidence": [{"path": str(ev.relative_to(inv.root.resolve())), "sha256": sha256_file(ev)}],
+        "seeds": seeds, "data_ids": data_ids,
+        "env_version": state.env.version, "env_lock_sha256": state.env.lock_sha256,
+        "hypothesis_sha256": state.review.frozen_sha256, "problem_sha256": state.problem_sha256,
+        "created": now_iso(),
+    }
+    body = [f"# Kill check — {experiment} / {k['id']}: **{label.upper()}**", "",
+            f"Kill criterion {k['id']}: {k.get('condition')}  ({m.metric} {op} {value})",
+            f"Observed: {m.point:.6g} (95% CI [{m.ci_low:.6g}, {m.ci_high:.6g}], n={m.n})", "",
+            "Evidence: " + ", ".join(f"`{e['path']}` (sha256 {e['sha256'][:12]})" for e in vfm["evidence"]),
+            f"Reproducibility: seeds {seeds}; data {data_ids}; env v{state.env.version} ({(state.env.lock_sha256 or '')[:12]})"]
+    vpath = inv.verdict(experiment, k["id"])
+    if vpath.exists():
+        vpath.chmod(0o644)
+    vpath.write_text(render_verdict(vfm, body), encoding="utf-8")
+    vpath.chmod(0o444)
+    rel_v = str(vpath.relative_to(inv.root))
+    state.verdicts = [v for v in state.verdicts if not (v.experiment == experiment and v.criterion == k["id"])]
+    state.verdicts.append(VerdictRef(experiment=experiment, criterion=k["id"], label=label, file=rel_v, when=now_iso()))
+    if met:
+        state.kill.triggered = True
+        state.kill.criterion = k["id"]
+        state.kill.when = now_iso()
+        state.kill.evidence = vfm["evidence"][0]["path"]
+        state.kill.observed = m.point
+        state.phase = Phase.CLOSING
+        state.save(inv.root)
+        if not inv.closure.exists():
+            inv.closure.write_text(_template("closure.md").replace("{id}", state.id), encoding="utf-8")
+        echo(f"KILL CRITERION {k['id']} MET ({k.get('condition')}; observed {m.point:.6g} {op} {value}). Written to {rel_v}. "
+             "Remaining experiments are halted; the investigation is routed to closure. Fill closure.md (anomalies -> "
+             "open questions), then the researcher types `/craft-close`.")
+        return
+    state.save(inv.root)
+    echo(f"Kill criterion {k['id']} NOT met (observed {m.point:.6g}, kill if {op} {value}). Recorded in {rel_v}; execution continues.")
 
 
 def _metric_names(data: dict) -> set[str]:

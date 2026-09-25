@@ -506,6 +506,17 @@ def test_21_exploratory_numbers_never_become_evidence(arc: Craft):
 
 @pytest.mark.checkpoint("6.5")
 def test_22_kill_criterion_halts_and_routes_to_closure(arc: Craft):
+    # a kill criterion can be checked directly from pilot evidence; not met -> execution continues
+    pilot = arc.write(f"investigations/{INV}/experiments/pilot/evidence/pilot.json", json.dumps({
+        "metric": "pilot_loss", "values": [4.1, 4.3, 4.0, 4.2, 4.4], "seeds": [1, 2, 3, 4, 5], "data_id": "corpus-2026-09-snapshot"}))
+    r = arc("verdict", "pilot", "--criterion", "K1", "--evidence", str(pilot), "--inv", INV)
+    assert r.code == 0, r.text
+    assert "NOT met" in r.out
+    fm, _ = split_frontmatter((arc.root / "investigations" / INV / "experiments" / "pilot" / "verdict-K1.md").read_text())
+    assert fm["kind"] == "kill-criterion" and fm["label"] == "kill-not-met" and fm["value"] == 5.0
+    assert json.loads(arc("status", "--json").out)[INV]["phase"] == "executing"
+    r = arc("verdict", "pilot", "--criterion", "K9", "--evidence", str(pilot), "--inv", INV)
+    assert r.code != 0 and "neither a criterion" in r.err
     ev = arc.write(f"investigations/{INV}/experiments/exp2/evidence/c3.json", json.dumps({
         "metrics": {"recall_at_10": {"values": [0.70, 0.72, 0.71, 0.69, 0.73]},
                     "pilot_loss": {"values": [6.1, 6.3, 6.0, 6.2, 6.4]}},
