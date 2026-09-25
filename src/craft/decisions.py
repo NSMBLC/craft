@@ -106,7 +106,19 @@ def close(prog: Programme, inv_id: str | None, note: str, incomplete: bool, conf
         raise CraftError("integrity problems block closure:\n  " + "\n  ".join(problems))
     state = InvestigationState.load(inv.root)
     state.require_untainted("close")
-    if state.phase == Phase.EXECUTING and incomplete:
+    if state.phase == Phase.EXECUTING:
+        if not incomplete:
+            from .artifacts.hypothesis import criteria_table
+
+            fm, _ = read_doc(inv.hypothesis)
+            done = {v.criterion for v in state.verdicts}
+            missing = [c for c in criteria_table(fm) if c not in done]
+            raise CraftError(
+                f"{state.id} is still executing: {len(missing)} of {len(criteria_table(fm))} criteria have no verdict "
+                f"({', '.join(missing) or 'none'}). An investigation closes when every criterion has a verdict or a "
+                "kill criterion fires; the agent files them with `craft verdict`. To abandon it now and record that "
+                'openly, type `/craft-close --incomplete --note "why"`.'
+            )
         state.phase = Phase.CLOSING
         state.attend("close-incomplete", state.id, note or "closed before all criteria had verdicts")
     state.require_phase(Phase.CLOSING, action="close")

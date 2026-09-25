@@ -467,6 +467,9 @@ def test_19_env_change_halts_until_approved(arc: Craft):
 @pytest.mark.checkpoint("5.4", "6.2", "6.4")
 def test_20_verdict_at_1_4_against_frozen_1_5_is_refuted(arc: Craft):
     ev = arc.root / "investigations" / INV / "experiments" / "exp1" / "evidence" / "c1.json"
+    # closing early is refused with the list of criteria still open, and the honest way out
+    r = arc.hook_event("user-prompt-submit", prompt=f"/craft-close --inv {INV}", hook_event_name="UserPromptSubmit")
+    assert "REFUSED" in r.out and "3 of 3 criteria have no verdict (C1, C2, C3)" in r.out and "--incomplete" in r.out
     r = arc("verdict", "exp1", "--criterion", "C1", "--evidence", str(ev), "--inv", INV)
     assert r.code == 0, r.text
     assert "REFUTED" in r.out
