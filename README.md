@@ -2,15 +2,22 @@
 
 Disciplined computational research inside a GenAI session.
 
-CRAFT turns a research programme into a sequence of gated artifacts, problem statement,
-literature map, pre-registered hypothesis, independent review, computed verdicts, closure into
-institutional memory, and enforces the gates *mechanically*: the agent operating the session
-cannot write a task list before review concludes, cannot edit a frozen hypothesis, cannot
-lower a threshold after the data arrive, and cannot write to the programme's memory except by
-closing an investigation. Those refusals come from hooks and file permissions, not from the
-model's good intentions, so the researcher cannot talk their way past them either.
+CRAFT keeps a research programme honest without making it linear. An investigation holds a
+one-page problem statement and a growing registry of hypotheses, experiments, literature and
+parked questions. You, the agent, or the results themselves can add a hypothesis at any point;
+ideas can be parked for later; the literature can be searched again whenever you like.
+Everything you *plan* stays editable.
 
-The spec is the seven user journeys in `docs/journeys.md`; every numbered checkpoint maps to a
+Two things are enforced *mechanically*: a hypothesis's criteria are registered by an
+independent referee before its data exist, and the record of what happened (reviews,
+verdicts, the evidence they cite, memory, the archive) is never edited. So the agent cannot
+produce evidence for a hypothesis nobody reviewed, cannot relabel a verdict, and cannot write
+to memory except by closing an investigation. Changing a threshold after the data is allowed,
+but it is never hidden: the verdict keeps the pre-registered label and says what the change
+would conclude, and memory tags it post-hoc. The guarantees come from hooks and recorded
+hashes (which survive git clones, unlike file permissions), not from the model's good intentions.
+
+The spec is the eight user journeys in `docs/journeys.md`; every numbered checkpoint maps to a
 test in `tests/acceptance/checkpoints.md`.
 
 ## Install (once per machine)
@@ -38,19 +45,23 @@ agent playbook, and a `/craft` skill. It never overwrites files you already have
 
 ## Every day
 
-Talk to the agent in plain language. It runs `craft recall`, `craft new`, `craft validate`,
-`craft literature add`, `craft review`, `craft verdict` and so on. You read one-page artifacts
-and make five kinds of decisions as slash commands in the session (they autocomplete; the plain
-`craft ...` forms also work typed as a message or in a terminal of your own):
+Talk to the agent in plain language: "park that as an idea", "let's test H2 next", "search the
+literature again for X", "plan an experiment at 2M params". It writes the files and runs
+`craft recall`, `craft new`, `craft validate`, `craft literature add`, `craft review`,
+`craft verdict` and so on, and after every result it suggests up to three follow-ups. You read
+one-page artifacts and make four kinds of decisions as slash commands in the session (they
+autocomplete; the plain `craft ...` forms also work typed as a message or in a terminal of your own):
 
 ```
 /craft-approve            # approve what the agent is waiting on: the one-page statement, or a package
 /craft-reject --note "…"  # refuse a proposed package
-/craft-close              # close the investigation; memory is written here only
-/craft-reopen problem|review
+/craft-close              # close whenever you choose; memory is written here only
 /craft-resolve --note "…" # clear an integrity hold
 /craft-status  /craft-help  /craft-decisions  /craft-explain <id>   # answered directly, no model turn
 ```
+
+`/craft-status` is the board: every hypothesis (draft, in review, registered, supported, refuted,
+inconclusive), every experiment (planned, run, done), the open questions, and whose turn it is.
 
 Typed as a slash command or message, the decision never reaches the model: Claude Code hands every prompt to
 CRAFT's UserPromptSubmit hook first, which executes the decision and tells the model the outcome.
@@ -61,9 +72,11 @@ the CLI refuses inside an agent tool call, and the terminal form needs an intera
 
 ```
 craft.yaml                     memory/findings.jsonl  refuted.jsonl  open-questions.jsonl
-investigations/<id>/           problem.md  hypothesis.md  literature/  review/  tasks.md
-                               env.lock  experiments/<exp>/{evidence,exploratory}/  verdict-*.md
-archive/<id>/                  closed investigations, intact and read-only
+investigations/<id>/           problem.md  questions.md  literature/  env.lock  closure.md
+  hypotheses/H1.md H2.md …     one per hypothesis; an idea is a file with just a claim
+  experiments/<exp>/           plan.md  evidence/  exploratory/  verdict-H1-C1.md
+  review/H1/                   round-<n>.json  round-<n>.prompt.md  registered.md   (records)
+archive/<id>/                  closed investigations, intact; hashes checked by `craft verify`
 ```
 
 ## Development

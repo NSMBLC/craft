@@ -11,7 +11,7 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from .paths import ARCHIVE_DIR, INVESTIGATIONS_DIR, MEMORY_DIR, PROGRAMME_MARKER, Programme
+from .paths import ARCHIVE_DIR, INVESTIGATIONS_DIR, MEMORY_DIR, PROGRAMME_MARKER, InvestigationPaths, Programme
 from .state import InvestigationState, Phase
 from .util import CraftError
 
@@ -77,7 +77,7 @@ def decide_write(prog: Programme, target: Path) -> Decision:
             "5.6",
         )
     if head == ARCHIVE_DIR:
-        return Decision.deny(f"{rel}: archived investigations are immutable.")
+        return Decision.deny(f"{rel}: archived investigations are the record of what happened; they are never edited.")
     if head != INVESTIGATIONS_DIR:
         return Decision.ok()
     if len(parts) < 2:
@@ -94,67 +94,42 @@ def decide_write(prog: Programme, target: Path) -> Decision:
         return Decision.deny(
             f"{rel}: no investigation '{inv_id}' exists. Create it with `craft new` first."
         )
-    return decide_investigation_write(state, inner)
+    return decide_investigation_write(state, inner, InvestigationPaths(prog.investigation_dir(inv_id)))
 
 
-def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) -> Decision:
-    """Gate table for paths inside an investigation (see plan)."""
+def decide_investigation_write(state: InvestigationState, inner: PurePosixPath,
+                               inv: InvestigationPaths | None = None) -> Decision:
+    """Gate table for paths inside an investigation.
+
+    Plans (problem, hypotheses, experiment plans, literature, questions, closure, notes, code) are
+    the agent's to write until the investigation closes. Records of what happened (state, reviews,
+    registered snapshots, verdicts, cited evidence, env.lock) are written only by `craft`.
+    Evidence may be produced only for hypotheses that review has registered.
+    """
     name = inner.as_posix()
     ph = state.phase
-    inv = state.id
+    inv_id = state.id
 
-    if state.phase == Phase.CLOSED:
-        return Decision.deny(f"investigation {inv} is closed; it is immutable.")
+    if ph == Phase.CLOSED:
+        return Decision.deny(f"investigation {inv_id} is closed; it is the record of what happened.")
 
     if name == "state.json":
         return Decision.deny("state.json is written only by `craft`; use the corresponding command.")
 
-    if name == "problem.md":
-        if ph == Phase.FRAMING:
-            return Decision.ok()
-        return Decision.deny(
-            f"problem.md of {inv} was approved by the researcher on "
-            f"{_approval_date(state, 'problem')} and is frozen. If the framing must change, the "
-            "researcher types `/craft-reopen problem`; if the question itself changed, open a new "
-            "investigation.",
-            "1.6",
-        )
-
-    if name == "hypothesis.md":
-        if ph in (Phase.DESIGNING, Phase.RESPONDING):
-            return Decision.ok()
-        if ph == Phase.FRAMING:
-            return Decision.deny(
-                "the problem statement has not been approved yet; the hypothesis is drafted after "
-                "the researcher types `/craft-approve`."
-            )
-        return Decision.deny(
-            f"hypothesis.md of {inv} is frozen: review concluded clean on {state.review.frozen_at} "
-            f"(round {len(state.review.rounds)}). Frozen documents cannot be modified at all, not even "
-            "for typos. The pre-registered thresholds stand; if a different threshold is wanted, open a "
-            "new investigation that declares it openly.",
-            "5.5",
-        )
-
     if inner.parts and inner.parts[0] == "review":
-        if re.fullmatch(r"round-\d+\.json", inner.name):
+        if inner.name == "registered.md":
+            return Decision.deny(
+                f"{name} is the hypothesis exactly as review registered it. Edit hypotheses/{inner.parts[1] if len(inner.parts) > 2 else '<id>'}.md "
+                "instead: changes to criteria after registration are allowed and recorded as post-hoc in every verdict.",
+                "5.5",
+            )
+        if re.fullmatch(r"round-\d+\.(json|prompt\.md|hypothesis\.md)", inner.name):
             return Decision.deny(
                 "review files are written only by the referee (`craft review`). The agent "
                 "never authors or edits a review.",
                 "4.1",
             )
-        if re.fullmatch(r"round-\d+-responses\.md", inner.name):
-            if ph == Phase.RESPONDING:
-                return Decision.ok()
-            return Decision.deny(
-                "responses are filed with `craft review respond` while a round has open objections."
-            )
-        return Decision.deny("the review directory is managed by `craft review`.")
-
-    if name == "tasks.md":
-        if ph >= Phase.FROZEN:
-            return Decision.ok()
-        return Decision.deny(_tasks_reason(state), _tasks_checkpoint(state))
+        return Decision.deny("the review directory is managed by `craft review` (responses: `craft review respond`).")
 
     if name == "env.lock":
         return Decision.deny(
@@ -165,76 +140,75 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) 
     if name == "env.proposal.yaml":
         return Decision.deny("package proposals are written with `craft propose package`.")
 
-    if inner.parts and inner.parts[0] == "experiments":
-        if re.fullmatch(r"verdict-.*\.md", inner.name):
+    if inner.parts and inner.parts[0] == "experiments" and len(inner.parts) >= 3:
+        exp = inner.parts[1]
+        if re.fullmatch(r"verdict-.*\.md", inner.name) and len(inner.parts) == 3:
             return Decision.deny(
-                "verdicts are computed by `craft verdict` from the frozen criteria and an evidence "
+                "verdicts are computed by `craft verdict` from the registered criteria and an evidence "
                 "file; the agent never writes a label.",
                 "6.2",
             )
-        if ph >= Phase.EXECUTING and ph < Phase.CLOSED:
-            if ph == Phase.CLOSING and len(inner.parts) >= 3 and inner.parts[2] == "evidence":
+        if inner.parts[2] == "evidence":
+            if name in state.records:
                 return Decision.deny(
-                    f"investigation {inv} is closing ({_closing_why(state)}); no new evidence is accepted."
+                    f"{name} is the evidence a verdict cites; records of what happened are never edited (sha256 "
+                    "recorded in state.json). Produce new evidence in a new file, or plan a new experiment.",
+                    "6.2",
                 )
-            return Decision.ok()
-        return Decision.deny(
-            f"experiments start after the design is frozen and tasks.md exists (phase is '{ph.value}'). "
-            + state.blocked_reason()
-        )
-
-    if name == "closure.md":
-        if ph in (Phase.CLOSING, Phase.EXECUTING):
-            return Decision.ok()
-        return Decision.deny("closure.md is written when the investigation is closing.")
-
-    if inner.parts and inner.parts[0] == "literature":
-        if ph in (Phase.DESIGNING, Phase.RESPONDING, Phase.FRAMING):
-            return Decision.ok()
-        return Decision.deny("the literature map is part of the frozen design.")
-
-    # anything else inside the investigation (notes, code) is fine
+            return _evidence_write(state, exp, inv)
+    if name in state.records:
+        return Decision.deny(f"{name} is a record `craft` wrote; it is never edited (sha256 recorded in state.json).")
     return Decision.ok()
 
 
-def _approval_date(state: InvestigationState, what: str) -> str:
-    for a in state.approvals:
-        if a.what == what:
-            return a.when
-    return "an earlier date"
-
-
-def _closing_why(state: InvestigationState) -> str:
-    if state.kill.triggered:
-        return f"kill criterion {state.kill.criterion} was met"
-    return "all criteria have verdicts"
-
-
-def _tasks_reason(state: InvestigationState) -> str:
-    ph = state.phase
-    if ph == Phase.FRAMING:
-        return (
-            "tasks.md cannot be written: the problem statement is not approved and the design has "
-            "not been reviewed. Order is: approve problem -> draft hypothesis -> `craft review` "
-            "-> answer objections -> freeze -> tasks."
+def _evidence_write(state: InvestigationState, exp: str, inv: InvestigationPaths | None) -> Decision:
+    if state.phase == Phase.FRAMING:
+        return Decision.deny(
+            "no evidence before the problem statement is approved: the researcher types `/craft-approve`, "
+            "then evidence is produced for registered hypotheses (or kill-criterion pilots).",
+            "5.1",
         )
-    if ph == Phase.DESIGNING:
-        return (
-            "tasks.md cannot be written: the hypothesis has not been reviewed. Run `craft review` "
-            "and answer any blocking objections; tasks are written once review concludes."
+    if state.phase == Phase.CLOSING:
+        return Decision.deny(
+            f"investigation {state.id} is closing (kill criterion {state.kill.criterion} was met); no new evidence is accepted."
         )
-    if ph == Phase.RESPONDING:
-        ids = ", ".join(state.open_blocking)
-        return (
-            f"tasks.md cannot be written: review round {len(state.review.rounds)} left blocking "
-            f"objections open ({ids}). Answer each with `craft review respond` and request the next "
-            "round; tasks are written once every blocking objection is answered."
+    if inv is None:
+        return Decision.ok()
+    from . import registry
+
+    plan = inv.experiment_plan(exp)
+    if not plan.exists():
+        return Decision.ok()  # unplanned evidence (e.g. a kill-criterion pilot); `craft verdict` checks it
+    view = registry.exp_view(inv, state, exp)
+    if view.exploratory:
+        return Decision.deny(
+            f"experiment {exp} is planned as exploratory: its results go in experiments/{exp}/exploratory/, "
+            "which can never back a criterion.",
+            "6.3",
         )
-    return "tasks.md cannot be written in this phase."
-
-
-def _tasks_checkpoint(state: InvestigationState) -> str:
-    return "5.2" if state.phase == Phase.RESPONDING else "5.1"
+    for hid in dict.fromkeys(t.split(":")[0] for t in view.tests):
+        hv = registry.hyp_view(inv, state, hid)
+        if hv.rec.registered_sha256:
+            continue
+        if hv.status == "in review":
+            last = hv.rec.rounds[-1]
+            missing = [o for o in last.blocking_open if o not in last.responses]
+            return Decision.deny(
+                f"experiment {exp} tests {hid}, which is not registered: review round {len(hv.rec.rounds)} left blocking "
+                f"objections open ({', '.join(last.blocking_open)}). Answer each with `craft review respond` "
+                f"({', '.join(missing) or 'all answered'} remaining) and request the next round; evidence is "
+                "produced once review registers it.",
+                "5.2",
+            )
+        if hv.status == "dropped":
+            return Decision.deny(f"experiment {exp} tests {hid}, which is dropped or has no file; update the plan's tests.")
+        return Decision.deny(
+            f"experiment {exp} tests {hid}, which has not been reviewed: it is a draft. Complete it, run "
+            "`craft review`, and produce evidence once review registers it (criteria fixed before data). "
+            f"Exploratory runs may go in experiments/{exp}/exploratory/ now.",
+            "5.1",
+        )
+    return Decision.ok()
 
 
 # ---------------------------------------------------------------- bash screening
@@ -245,7 +219,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     Two rules: (1) human-only `craft` subcommands are never the agent's to run;
     (2) if the command looks like it mutates files, every path-like token that resolves into
     the programme is put through the write gate.
-    This is a heuristic layer; chmod 444 + hashes are the backstop.
+    This is a heuristic layer; recorded hashes (`craft verify`) are the backstop.
     """
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(

@@ -1,6 +1,6 @@
 ---
 name: craft-resolve
-description: Clear an integrity hold after you have reviewed what happened to a frozen file.
+description: Clear an integrity hold after you have reviewed what happened to a recorded file (review, verdict, cited evidence, env.lock).
 ---
 
 Usage: `/craft-resolve --note "what happened" [--accept-current] [--inv <id>]`

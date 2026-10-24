@@ -7,10 +7,19 @@ An *investigation* lives under `investigations/<id>/` until closed, then `archiv
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from .util import CraftError, read_yaml
+
+# Hypothesis files are hypotheses/<id>.md; ids start with a letter and never contain ':' (used in H1:C1).
+HYP_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+def natural_key(s: str) -> list:
+    """Sort H2 before H10."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 PROGRAMME_MARKER = "craft.yaml"
 MEMORY_DIR = "memory"
@@ -134,12 +143,26 @@ class InvestigationPaths:
         return self.root / "problem.md"
 
     @property
-    def hypothesis(self) -> Path:
+    def legacy_hypothesis(self) -> Path:
+        """CRAFT v1 kept a single hypothesis here; v2 investigations never have it."""
         return self.root / "hypothesis.md"
 
     @property
-    def tasks(self) -> Path:
-        return self.root / "tasks.md"
+    def hypotheses_dir(self) -> Path:
+        return self.root / "hypotheses"
+
+    def hypothesis(self, hid: str) -> Path:
+        return self.hypotheses_dir / f"{hid}.md"
+
+    def hypothesis_ids(self) -> list[str]:
+        if not self.hypotheses_dir.exists():
+            return []
+        ids = [p.stem for p in self.hypotheses_dir.glob("*.md") if HYP_ID_RE.match(p.stem)]
+        return sorted(ids, key=natural_key)
+
+    @property
+    def questions(self) -> Path:
+        return self.root / "questions.md"
 
     @property
     def closure(self) -> Path:
@@ -169,11 +192,25 @@ class InvestigationPaths:
     def review_dir(self) -> Path:
         return self.root / "review"
 
-    def review_round(self, n: int) -> Path:
-        return self.review_dir / f"round-{n}.json"
+    def hyp_review_dir(self, hid: str) -> Path:
+        return self.review_dir / hid
 
-    def review_responses(self, n: int) -> Path:
-        return self.review_dir / f"round-{n}-responses.md"
+    def review_round(self, hid: str, n: int) -> Path:
+        return self.hyp_review_dir(hid) / f"round-{n}.json"
+
+    def review_prompt(self, hid: str, n: int) -> Path:
+        """Exactly what the referee was shown in round n (documents included)."""
+        return self.hyp_review_dir(hid) / f"round-{n}.prompt.md"
+
+    def review_snapshot(self, hid: str, n: int) -> Path:
+        return self.hyp_review_dir(hid) / f"round-{n}.hypothesis.md"
+
+    def review_responses(self, hid: str, n: int) -> Path:
+        return self.hyp_review_dir(hid) / f"round-{n}-responses.md"
+
+    def registered(self, hid: str) -> Path:
+        """The hypothesis exactly as it was when review concluded clean."""
+        return self.hyp_review_dir(hid) / "registered.md"
 
     @property
     def experiments_dir(self) -> Path:
@@ -182,6 +219,15 @@ class InvestigationPaths:
     def experiment(self, name: str) -> Path:
         return self.experiments_dir / name
 
+    def experiment_plan(self, name: str) -> Path:
+        return self.experiment(name) / "plan.md"
+
+    def experiment_names(self) -> list[str]:
+        if not self.experiments_dir.exists():
+            return []
+        return sorted((p.name for p in self.experiments_dir.iterdir() if p.is_dir() and not p.name.startswith(".")),
+                      key=natural_key)
+
     def evidence_dir(self, name: str) -> Path:
         return self.experiment(name) / "evidence"
 
@@ -189,4 +235,8 @@ class InvestigationPaths:
         return self.experiment(name) / "exploratory"
 
     def verdict(self, name: str, criterion: str) -> Path:
-        return self.experiment(name) / f"verdict-{criterion}.md"
+        """criterion is `H1:C1` (hypothesis criterion) or `K1` (kill criterion)."""
+        return self.experiment(name) / f"verdict-{criterion.replace(':', '-')}.md"
+
+    def rel(self, path: Path) -> str:
+        return path.resolve().relative_to(self.root.resolve()).as_posix()

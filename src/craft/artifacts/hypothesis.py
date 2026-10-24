@@ -1,4 +1,7 @@
-"""hypothesis.md: the pre-registration document (Journey 3). Freezes after review."""
+"""hypotheses/<id>.md: one pre-registration document per hypothesis (Journey 3).
+
+Registered (snapshotted and hashed) when review concludes clean; the file itself stays editable.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ REQUIRED_OUTCOMES = ("supported", "refuted", "inconclusive")
 
 
 def validate_hypothesis(path: Path) -> Validation:
-    v = Validation("hypothesis.md")
+    v = Validation(f"hypotheses/{path.name}")
     fm, body = read_doc(path)
 
     claim = fm.get("claim")

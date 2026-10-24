@@ -1,6 +1,6 @@
 ---
 name: craft-status
-description: Where each investigation stands, whose turn it is, and the exact next command.
+description: The board: every hypothesis and experiment with its status, open questions, whose turn it is, and the exact next command.
 ---
 
 Usage: `/craft-status`

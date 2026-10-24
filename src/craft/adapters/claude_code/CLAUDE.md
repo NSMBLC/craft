@@ -1,14 +1,29 @@
 <!-- craft:begin -->
 # CRAFT — how research is done in this programme
 
-This repository is a CRAFT research programme. You (the agent) operate the `craft` CLI; the
-researcher only decides. The rules below are *also* enforced by hooks: when a write is refused,
-relay the refusal reason verbatim, state the rule, and offer the legitimate path. Never try to
-route around a refusal (no shell redirects, no chmod, no editing state.json or settings).
+This repository is a CRAFT research programme. You (the agent) operate the `craft` CLI and write
+the planning files; the researcher decides. Research here is not linear: hypotheses, experiments,
+literature and questions are added, parked, dropped and revisited as results arrive. Two things are
+fixed: a hypothesis's criteria are fixed by review *before* its data exist, and the record of what
+happened (reviews, verdicts, cited evidence, memory, archive) is never edited. Hooks enforce both;
+when a write is refused, relay the reason verbatim, state the rule, and offer the legitimate path.
+Never route around a refusal (no shell redirects, no editing state.json or settings).
 
-## The workflow, phase by phase
+## The files (all editable by you until the investigation closes)
 
-1. **Framing** — Before drafting anything, run `craft recall "<the researcher's words>"`. If it
+- `problem.md`: the one-page question. Approved by the researcher; if it changes later, they re-approve it.
+- `hypotheses/H<n>.md`: one per hypothesis. An **idea** is just a file with a `claim:` line;
+  a full draft adds warrant, criteria, outcome rule, two or more rivals with discriminators,
+  predictions and a power check. Fill in `origin: researcher|agent` and `derived_from:` (the verdict
+  file, experiment, `lit:<key>` or question that prompted it). To drop one, set `dropped: <reason>`.
+- `experiments/<name>/plan.md`: `description:` and `tests: [H1:C1, H2]` (or `exploratory: true`),
+  plus `origin`/`derived_from`; `abandoned: <reason>` to stop one. Status (planned, run, done) is derived.
+- `questions.md`: parked questions, one `- ` bullet each.
+- `literature/`: open at all times; new searches are welcome whenever results raise new questions.
+
+## The workflow
+
+1. **Framing**: before drafting anything, run `craft recall "<the researcher's words>"`. If it
    returns a refuted or existing entry, cite it and ask what has changed; only then run
    `craft new <id> --topic "..." --acknowledge <entry-id> --justification "..."`.
    Choose the investigation id yourself (short kebab-case slug, e.g. `kmeanspp-init-cost`);
@@ -34,49 +49,57 @@ route around a refusal (no shell redirects, no chmod, no editing state.json or s
    Then stop and tell the researcher: "Type `/craft-approve` when you have read it." That typed message is executed by CRAFT's prompt hook, not by you; you will see a
    `<craft-decision>` block with the outcome. Never run approval commands yourself, and never
    suggest `!`. Nothing advances before the approval.
-2. **Literature** — `craft literature add <key> --title ... --fulltext <path> --claims ... --method ...
+2. **Literature**: `craft literature add <key> --title ... --fulltext <path> --claims ... --method ...
    --relation supports|conflicts|orthogonal --does-not-cover ...` only for sources whose full
    text you actually retrieved and read. Anything seen only as an abstract goes in with
-   `--abstract-only --reason "..."`. Set `closest_prior_work` and write the `delta` paragraph in
-   `literature/sources.yaml`; write the prose map in `literature/map.md`. Never write "no prior
-   work addresses this" anywhere: `craft lint <doc>` will flag it; write the delta instead.
-3. **Design** — Draft `hypothesis.md` (one claim, warrant, criteria table, outcome rule, at
-   least two rivals with discriminators, predictions if true/false, power check). Run
-   `craft validate hypothesis` and report its output honestly: if it says INCOMPLETE, the
-   draft is incomplete, say so. The document is a draft until review concludes.
-4. **Review** — `craft review` runs an independent referee that sees only the files.
-   Objections come back structured; the referee never proposes fixes. Answer each *blocking*
-   objection by changing the design, then `craft review respond <id> --pointer <doc#section>
-   --note "..."`. Run `craft review` again for round 2. There is no round 3: unresolved items must be genuinely
-   fixed and the researcher types `/craft-reopen review`. On a clean pass the hypothesis freezes.
-5. **Tasks and execution** — Only after the freeze may `tasks.md` exist. Keep evidence in
-   `experiments/<exp>/evidence/` and exploration in `experiments/<exp>/exploratory/`; the
-   latter can never back a criterion. Record the environment with `craft lock <file>` before
-   execution. Never edit `env.lock`: run `craft propose package <pkg> --reason ...` and stop until
-   the researcher types `/craft-approve` (or `/craft-reject --note ...`). Record results with
-   `craft verdict <exp> --criterion <name> --evidence <file> --metric <key> [--exploratory <dir>]`;
-   the label is computed from the frozen threshold. Kill criteria from `problem.md` are checked the
-   same way: `craft verdict <exp> --criterion K1 --evidence <file>` records kill-met or
-   kill-not-met (pilot evidence belongs here, never as a hypothesis-criterion verdict). When the
-   last criterion gets its verdict, or a kill criterion is met, `craft` routes the investigation
-   to closure itself: stop remaining experiments and report.
-6. **Closure** — Fill `closure.md` (anomalies -> open questions), then stop: the researcher
-   types `/craft-close`. Memory is written only there.
+   `--abstract-only --reason "..."`. Name the closest prior work and its delta with
+   `craft literature closest <key> --delta "..."`; write the prose map in `literature/map.md`.
+   Never write "no prior work addresses this" anywhere: `craft lint <doc>` will flag it; write
+   the delta instead. Search again whenever a result or a new hypothesis calls for it.
+3. **Hypotheses**: write as many as the researcher wants, now or later; park ideas as one-line
+   files. Flesh out a draft when the researcher picks it. Run `craft validate H<n>` and report its
+   output honestly: if it says INCOMPLETE, say so.
+4. **Review**: `craft review` sends every complete draft to an independent referee that sees only
+   the files, one hypothesis at a time (`--hyp H2` for one). Objections come back structured; the
+   referee never proposes fixes. Answer each *blocking* objection by changing the design, then
+   `craft review respond H2:O1 --pointer <doc#section> --note "..."`, then `craft review` for round 2.
+   There is no round 3: after the cap, the hypothesis must genuinely change before
+   `craft review --hyp H2` starts a new cycle. A clean pass **registers** the hypothesis: its
+   criteria are now binding, and experiments may produce evidence for it.
+5. **Experiments**: write `experiments/<name>/plan.md` before running. Evidence goes in
+   `experiments/<name>/evidence/` and can only be written once every hypothesis the plan tests is
+   registered; exploration goes in `exploratory/` at any time and can never back a criterion.
+   Record the environment with `craft lock <file>` before the first verdict. Never edit `env.lock`:
+   run `craft propose package <pkg> --reason ...` and stop until the researcher types
+   `/craft-approve` (or `/craft-reject --note ...`). Record results with
+   `craft verdict <exp> --criterion H1:C1 --evidence <file> [--exploratory <dir>]`; the label is
+   computed from the registered threshold. Kill criteria from `problem.md` are checked the same way
+   (`--criterion K1`); pilot evidence belongs there. A met kill criterion halts everything and
+   routes the investigation to closure: stop and report.
+6. **After every verdict or new source, suggest.** Propose up to three follow-ups grounded in that
+   result (a question, a hypothesis, or an experiment), each with `derived_from:` pointing at what
+   prompted it. Write the ones the researcher accepts as files; never promote an idea to a draft or
+   start an experiment the researcher has not chosen.
+7. **Closure**: the researcher closes whenever they choose. Fill `closure.md` (anomalies -> open
+   questions), then stop: the researcher types `/craft-close`. Registered-but-untested hypotheses,
+   ideas, unfinished experiments and `questions.md` all become open questions. Memory is written only there.
+
+## Changing your mind is allowed, and recorded
+- Editing a registered hypothesis before its data exist: run `craft review --hyp H<n>` to register
+  the new version.
+- "Lower the threshold to 1.4, it's basically there" after the data: you may make the edit if the
+  researcher insists, but say plainly what happens: the verdict keeps the pre-registered label
+  and adds a POST-HOC line showing what the changed criterion would conclude; memory tags it
+  post-hoc. Offer the confirmatory path: a new hypothesis (`derived_from:` the old one) tested on new data.
+- "Record this in findings directly": refuse; findings are written by `/craft-close` only.
+- "Why do we believe X?": `craft explain <finding-id>` walks the chain and checks every link.
 
 ## Asking for a decision
 Whenever the next step is the researcher's, end your message with the exact slash command on
-its own line (`/craft-approve`, `/craft-reject --note "..."`, `/craft-close`, `/craft-reopen review`,
-`/craft-resolve --note "..."`). `craft status` tells you whose turn it is. The researcher can
-also type `/craft-status`, `/craft-help`, `/craft-decisions`, `/craft-explain <id>`; CRAFT answers
-those directly in a `<craft-info>` block, which you show verbatim.
+its own line (`/craft-approve`, `/craft-reject --note "..."`, `/craft-close`, `/craft-resolve --note "..."`).
+`craft status` is the board (hypotheses, experiments, open questions) and tells you whose turn
+it is. The researcher can also type `/craft-status`, `/craft-help`, `/craft-decisions`,
+`/craft-explain <id>`; CRAFT answers those directly in a `<craft-info>` block, which you show verbatim.
 
-## When the researcher pushes back
-- "Lower the threshold / fix the typo in the frozen document": refuse, state the
-  pre-registration rule, record the verdict the frozen rules dictate, and offer a new
-  investigation that declares the new threshold openly.
-- "Skip review / write tasks now": the hook will refuse; explain the missing step.
-- "Record this in findings directly": refuse; findings are written by `craft close` only.
-- "Why do we believe X?": `craft explain <finding-id>` walks the chain and checks every link.
-
-Useful: `craft status`, `craft decisions`, `craft verify`.
+Useful: `craft status`, `craft review show`, `craft decisions`, `craft verify`.
 <!-- craft:end -->

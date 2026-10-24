@@ -4,8 +4,8 @@ Backends:
   claude  — `claude -p` with no tools, no settings sources, no session persistence, a
             system prompt from templates, and a JSON schema for the output.
   command — any shell command; receives the full prompt on stdin, must print JSON.
-  fake    — deterministic; reads `CRAFT_FAKE_REFEREE` (path to JSON with keys "1" and "2")
-            for tests and demos.
+  fake    — deterministic; reads `CRAFT_FAKE_REFEREE` (path to JSON with keys "1" and "2",
+            or "H2:1" for one hypothesis) for tests and demos.
 """
 
 from __future__ import annotations
@@ -21,32 +21,34 @@ from pathlib import Path
 from .paths import InvestigationPaths
 from .util import CraftError
 
-DOC_ORDER = ("problem.md", "hypothesis.md", "literature/map.md", "literature/sources.yaml")
+DOC_ORDER = ("problem.md", "{hypothesis}", "literature/map.md", "literature/sources.yaml")
 
 
 def _template(name: str) -> str:
     return resources.files("craft.templates").joinpath(name).read_text(encoding="utf-8")
 
 
-def build_documents(inv: InvestigationPaths) -> str:
+def build_documents(inv: InvestigationPaths, hid: str) -> str:
+    """The referee sees one hypothesis at a time, with the problem and the literature as they are now."""
     parts = []
     for rel in DOC_ORDER:
+        rel = rel.format(hypothesis=f"hypotheses/{hid}.md")
         p = inv.root / rel
         if p.exists():
             parts.append(f"===== {rel} =====\n{p.read_text(encoding='utf-8')}\n")
     return "\n".join(parts)
 
 
-def build_round1_prompt(inv: InvestigationPaths) -> tuple[str, str]:
+def build_round1_prompt(inv: InvestigationPaths, hid: str) -> tuple[str, str]:
     return _template("referee_round1.md"), (
-        "Review the following design documents. Respond with JSON matching the schema.\n\n"
-        + build_documents(inv)
+        f"Review the design of hypothesis {hid} in the following documents. Respond with JSON matching the schema.\n\n"
+        + build_documents(inv, hid)
     )
 
 
-def build_round2_prompt(inv: InvestigationPaths, round1: dict, responses: dict[str, dict], diff: str) -> tuple[str, str]:
+def build_round2_prompt(inv: InvestigationPaths, hid: str, round1: dict, responses: dict[str, dict], diff: str) -> tuple[str, str]:
     blocking = [o for o in round1.get("objections", []) if o.get("severity") == "blocking"]
-    lines = ["Your round-1 blocking objections and the authors' responses:\n"]
+    lines = [f"Your round-1 blocking objections on hypothesis {hid} and the authors' responses:\n"]
     for o in blocking:
         r = responses.get(o["id"], {})
         lines.append(f"--- {o['id']} [{o['category']}] target {o['target']['document']} § {o['target']['section']}")
@@ -54,17 +56,17 @@ def build_round2_prompt(inv: InvestigationPaths, round1: dict, responses: dict[s
         lines.append(f"Adequate answer would show: {o['adequate_answer']}")
         lines.append(f"Response pointer: {r.get('pointer', '(none)')}")
         lines.append(f"Response note: {r.get('note', '(none)')}\n")
-    lines.append("===== change in hypothesis.md since round 1 (unified diff; empty means unchanged) =====")
+    lines.append(f"===== change in hypotheses/{hid}.md since round 1 (unified diff; empty means unchanged) =====")
     lines.append(diff or "(no change)")
     lines.append("\n===== current design documents =====")
-    lines.append(build_documents(inv))
+    lines.append(build_documents(inv, hid))
     return _template("referee_round2.md"), "\n".join(lines)
 
 
-def run_referee(config: dict, system_prompt: str, user_prompt: str, schema: dict, round_n: int) -> dict:
+def run_referee(config: dict, system_prompt: str, user_prompt: str, schema: dict, round_n: int, hid: str = "") -> dict:
     backend = os.environ.get("CRAFT_REFEREE_BACKEND") or config.get("backend", "claude")
     if backend == "fake":
-        return _fake(round_n)
+        return _fake(round_n, hid)
     if backend == "command":
         return _command(config.get("command"), system_prompt, user_prompt, schema)
     if backend == "claude":
@@ -72,15 +74,16 @@ def run_referee(config: dict, system_prompt: str, user_prompt: str, schema: dict
     raise CraftError(f"unknown referee backend '{backend}'")
 
 
-def _fake(round_n: int) -> dict:
+def _fake(round_n: int, hid: str = "") -> dict:
+    """Scripted reviews: key "<hid>:<round>" for one hypothesis, falling back to "<round>"."""
     path = os.environ.get("CRAFT_FAKE_REFEREE")
     if not path:
         raise CraftError("fake referee backend needs CRAFT_FAKE_REFEREE=<path to json with keys '1','2'>")
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    key = str(round_n)
-    if key not in data:
-        raise CraftError(f"fake referee script has no entry for round {round_n}")
-    return data[key]
+    for key in (f"{hid}:{round_n}", str(round_n)):
+        if key in data:
+            return data[key]
+    raise CraftError(f"fake referee script has no entry for round {round_n}")
 
 
 def _command(cmd: str | None, system_prompt: str, user_prompt: str, schema: dict) -> dict:

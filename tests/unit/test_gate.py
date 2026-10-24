@@ -7,42 +7,61 @@ from craft.paths import Programme
 from craft.state import Phase, new_state
 
 
-def st(phase: Phase, blocking=None):
+def st(phase: Phase, records=None):
     s = new_state("inv-1", "t")
     s.phase = phase
-    if blocking:
-        from craft.state import ReviewRound
-        s.review.rounds.append(ReviewRound(n=1, when="x", backend="fake", hypothesis_sha256="h", blocking_open=blocking))
+    s.records.update(records or {})
     return s
 
 
-@pytest.mark.parametrize("phase,allowed", [
-    (Phase.FRAMING, False), (Phase.DESIGNING, False), (Phase.RESPONDING, False),
-    (Phase.FROZEN, True), (Phase.EXECUTING, True), (Phase.CLOSING, True), (Phase.CLOSED, False),
+def gate(state, path, inv=None):
+    return decide_investigation_write(state, PurePosixPath(path), inv)
+
+
+@pytest.mark.parametrize("path", [
+    "problem.md", "hypotheses/H1.md", "hypotheses/H9.md", "experiments/e1/plan.md", "experiments/e1/exploratory/x.json",
+    "literature/sources.yaml", "literature/map.md", "questions.md", "closure.md", "tasks.md", "notes/idea.md", "src/run.py",
 ])
-def test_tasks_gate(phase, allowed):
-    d = decide_investigation_write(st(phase, ["O1"] if phase == Phase.RESPONDING else None), PurePosixPath("tasks.md"))
-    assert d.allow is allowed
-    if phase == Phase.DESIGNING:
-        assert "review" in d.reason
-    if phase == Phase.RESPONDING:
-        assert "O1" in d.reason and "respond" in d.reason
+@pytest.mark.parametrize("phase", [Phase.FRAMING, Phase.OPEN, Phase.CLOSING])
+def test_plans_stay_writable_until_closed(phase, path):
+    assert gate(st(phase), path).allow, (phase, path)
+    assert not gate(st(Phase.CLOSED), path).allow
 
 
-@pytest.mark.parametrize("phase,allowed", [
-    (Phase.FRAMING, False), (Phase.DESIGNING, True), (Phase.RESPONDING, True),
-    (Phase.FROZEN, False), (Phase.EXECUTING, False),
-])
-def test_hypothesis_gate(phase, allowed):
-    d = decide_investigation_write(st(phase), PurePosixPath("hypothesis.md"))
-    assert d.allow is allowed
-    if phase >= Phase.FROZEN:
-        assert "frozen" in d.reason.lower() and "typo" in d.reason
+def test_records_are_never_writable():
+    s = st(Phase.OPEN, {"experiments/e1/evidence/c1.json": "x", "review/H1/round-1-responses.md": "y"})
+    for p in ("state.json", "review/H1/round-1.json", "review/H1/round-1.prompt.md", "review/H1/registered.md",
+              "review/H1/round-1-responses.md", "experiments/e1/verdict-H1-C1.md", "experiments/e1/verdict-K1.md",
+              "env.lock", "env.proposal.yaml", "experiments/e1/evidence/c1.json"):
+        assert not gate(s, p).allow, p
+    assert "post-hoc" in gate(s, "review/H1/registered.md").reason
+    assert "cites" in gate(s, "experiments/e1/evidence/c1.json").reason
+    # uncited evidence for an unplanned experiment (e.g. a kill-criterion pilot) is fine
+    assert gate(s, "experiments/e1/evidence/c2.json").allow
 
 
-def test_never_writable_paths():
-    for p in ("state.json", "review/round-1.json", "experiments/e1/verdict-C1.md", "env.lock"):
-        assert not decide_investigation_write(st(Phase.EXECUTING), PurePosixPath(p)).allow, p
+def test_evidence_gate_follows_the_plan(tmp_path):
+    from craft.paths import InvestigationPaths
+    from craft.state import ReviewRound
+
+    inv = InvestigationPaths(tmp_path)
+    (tmp_path / "hypotheses").mkdir()
+    (tmp_path / "hypotheses" / "H1.md").write_text("---\nclaim: x\ncriteria:\n  - {name: C1, metric: m, op: '>=', threshold: 1, conditions: c}\n---\n")
+    plan = tmp_path / "experiments" / "e1" / "plan.md"
+    plan.parent.mkdir(parents=True)
+    plan.write_text("---\ndescription: d\ntests: [H1]\n---\n")
+    s = st(Phase.OPEN)
+    d = gate(s, "experiments/e1/evidence/c1.json", inv)
+    assert not d.allow and "draft" in d.reason and d.checkpoint == "5.1"
+    s.hyp("H1").rounds.append(ReviewRound(n=1, when="x", backend="fake", hypothesis_sha256="h", blocking_open=["O1"]))
+    d = gate(s, "experiments/e1/evidence/c1.json", inv)
+    assert not d.allow and "O1" in d.reason and d.checkpoint == "5.2"
+    s.hyp("H1").registered_sha256 = "abc"
+    assert gate(s, "experiments/e1/evidence/c1.json", inv).allow
+    assert not gate(st(Phase.FRAMING), "experiments/e1/evidence/c1.json", inv).allow
+    assert not gate(st(Phase.CLOSING), "experiments/e1/evidence/c1.json", inv).allow
+    plan.write_text("---\ndescription: d\nexploratory: true\n---\n")
+    assert gate(s, "experiments/e1/evidence/c1.json", inv).checkpoint == "6.3"
 
 
 def test_programme_level_paths(tmp_path):

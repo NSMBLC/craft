@@ -28,8 +28,8 @@ def _setup(programme: Craft, hyp: str) -> None:
         "memory_acknowledgements:\n  - ref: R-0001\n    entry: method A's accuracy advantage over baseline B holds on inputs larger than 1e6 tokens\n    justification: the new 2026 corpus has 10x longer documents so the 2025 refutation on short-document data does not apply\n",
         "memory_acknowledgements: []\n"))
     assert programme("approve", "problem", human=True).code == 0
-    programme.write("investigations/inv-001/hypothesis.md", hyp)
-    assert programme("validate", "hypothesis").code == 0
+    programme.write("investigations/inv-001/hypotheses/H1.md", hyp)
+    assert programme("validate", "H1").code == 0
 
 
 @pytest.mark.checkpoint("4.2")
@@ -38,7 +38,7 @@ def test_real_referee_finds_planted_tuning_asymmetry(programme: Craft):
     r = programme("review", env={"CRAFT_REFEREE_BACKEND": "claude"})
     print(r.text)
     assert r.code == 0, r.text
-    data = json.loads((programme.root / "investigations" / "inv-001" / "review" / "round-1.json").read_text())
+    data = json.loads((programme.root / "investigations" / "inv-001" / "review" / "H1" / "round-1.json").read_text())
     blocking = [o for o in data["objections"] if o["severity"] == "blocking"]
     assert blocking, "a sound-looking design with an obvious tuning asymmetry must draw a blocking objection"
     text = " ".join(o["statement"].lower() + " " + o["adequate_answer"].lower() for o in blocking)
@@ -53,7 +53,7 @@ def test_real_referee_does_not_invent_problems(programme: Craft):
     r = programme("review", env={"CRAFT_REFEREE_BACKEND": "claude"})
     print(r.text)
     assert r.code == 0, r.text
-    data = json.loads((programme.root / "investigations" / "inv-001" / "review" / "round-1.json").read_text())
+    data = json.loads((programme.root / "investigations" / "inv-001" / "review" / "H1" / "round-1.json").read_text())
     blocking = [o for o in data["objections"] if o["severity"] == "blocking"]
     # a sound design may still draw a blocking note from a strict referee; record it, but the
     # referee must be able to say "no blocking objections" when it finds none

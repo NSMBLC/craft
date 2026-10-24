@@ -1,45 +1,61 @@
-"""Helpers shared by the CLI and hooks: integrity verification and status text."""
+"""Helpers shared by the CLI and hooks: context loading, integrity verification, the board."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .envlock import verify_lock
-from .freeze import check_hash
+from .integrity import check_hash
 from .paths import InvestigationPaths, Programme
-from .state import InvestigationState, Phase
+from .state import InvestigationState
 from .util import CraftError
+
+
+def load_context(prog: Programme, inv_id: str | None) -> tuple[InvestigationPaths, InvestigationState]:
+    inv_id = pick_investigation(prog, inv_id)
+    inv = InvestigationPaths(prog.investigation_dir(inv_id))
+    if inv.legacy_hypothesis.exists() and not inv.hypotheses_dir.exists():
+        raise CraftError(
+            f"investigation {inv_id} was created with CRAFT v1 (a single frozen hypothesis.md). CRAFT v2 does not "
+            "migrate in-flight investigations: finish it with CRAFT v1, or start it again with `craft new`."
+        )
+    return inv, InvestigationState.load(inv.root)
+
+
+def _verify_root(root: Path, label: str) -> list[str]:
+    try:
+        state = InvestigationState.load(root)
+    except CraftError as e:
+        return [f"{label}: {e}"]
+    inv = InvestigationPaths(root)
+    problems = []
+    for rel, digest in sorted(state.records.items()):
+        p = check_hash(root / rel, digest, rel)
+        if p:
+            problems.append(f"{label}: {p}")
+    lp = verify_lock(inv, state)
+    if lp:
+        problems.append(f"{label}: {lp}")
+    for v in state.verdicts:
+        if not (root / v.file).exists():
+            problems.append(f"{label}: verdict file {v.file} is missing")
+    return problems
 
 
 def verify_investigation(prog: Programme, inv_id: str, taint: bool = True) -> list[str]:
     root = prog.investigation_dir(inv_id)
-    try:
+    problems = _verify_root(root, inv_id)
+    if problems and taint:
         state = InvestigationState.load(root)
-    except CraftError as e:
-        return [f"{inv_id}: {e}"]
-    inv = InvestigationPaths(root)
-    problems = []
-    if state.problem_sha256:
-        p = check_hash(inv.problem, state.problem_sha256)
-        if p:
-            problems.append(f"{inv_id}: {p}")
-    if state.review.frozen_sha256:
-        p = check_hash(inv.hypothesis, state.review.frozen_sha256)
-        if p:
-            problems.append(f"{inv_id}: {p}")
-    for n, rnd in enumerate(state.review.rounds, start=1):
-        rp = inv.review_round(rnd.n)
-        if not rp.exists():
-            problems.append(f"{inv_id}: review/round-{rnd.n}.json is missing")
-    lp = verify_lock(inv, state)
-    if lp:
-        problems.append(f"{inv_id}: {lp}")
-    for v in state.verdicts:
-        if not (root / v.file).exists():
-            problems.append(f"{inv_id}: verdict file {v.file} is missing")
-    if problems and taint and not state.tainted:
-        for p in problems:
-            state.taint(p)
-        state.save(root)
+        if not state.tainted:
+            for p in problems:
+                state.taint(p)
+            state.save(root)
     return problems
+
+
+def verify_archive(prog: Programme, inv_id: str) -> list[str]:
+    return _verify_root(prog.archive_dir / inv_id, f"archive/{inv_id}")
 
 
 def verify_memory(prog: Programme) -> list[str]:
@@ -59,47 +75,45 @@ def verify_all(prog: Programme) -> list[str]:
     problems = []
     for inv_id in prog.list_investigations():
         problems += verify_investigation(prog, inv_id)
+    for inv_id in prog.list_archived():
+        problems += verify_archive(prog, inv_id)
     problems += verify_memory(prog)
     return problems
 
 
-def status_text(prog: Programme) -> str:
+def status_text(prog: Programme, inv_id: str | None = None) -> str:
+    from . import registry
+
     lines = []
-    invs = prog.list_investigations()
+    invs = [inv_id] if inv_id else prog.list_investigations()
     if not invs:
         lines.append("No open investigations. The agent starts one with `craft recall` then `craft new <id> --topic ...`.")
-    for inv_id in invs:
+    for i in invs:
         try:
-            st = InvestigationState.load(prog.investigation_dir(inv_id))
+            inv, st = load_context(prog, i)
         except CraftError as e:
-            lines.append(f"- {inv_id}: {e}")
+            lines.append(f"- {i}: {e}")
             continue
-        who, cmd, why = st.next_action()
-        hold = " [INTEGRITY HOLD]" if st.tainted else ""
-        lines.append(f"- {inv_id} — phase {st.phase.value}{hold}")
-        lines.append(f"    {why}.")
-        if who != "nobody":
-            lines.append(f"    Waiting on the {who}: {cmd}")
-        if st.phase == Phase.RESPONDING and st.open_blocking:
-            lines.append(f"    open blocking objections: {', '.join(st.open_blocking)}")
+        lines.append(registry.board_text(inv, st))
     archived = prog.list_archived()
-    if archived:
+    if archived and not inv_id:
         lines.append(f"Archived investigations: {', '.join(archived)}")
     return "\n".join(lines)
 
 
 RESEARCHER_HELP = """Your commands (type them as messages; CRAFT executes them before the agent sees them):
   /craft-approve                 approve what the agent is waiting on: the one-page problem
-                                 statement (framing) or a proposed package (execution)
-  /craft-reject --note "why"     refuse a proposed package; execution continues as is
-  /craft-close                   close the investigation: outcomes go to memory, files to archive
-  /craft-reopen problem|review   withdraw an approval (problem) or restart review after a real fix
+                                 statement (or a changed version of it), or a proposed package
+  /craft-reject --note "why"     refuse a proposed package; work continues with the current environment
+  /craft-close                   close the investigation whenever you choose: outcomes go to memory,
+                                 untested hypotheses, ideas and questions to open questions, files to archive
   /craft-resolve --note "..."    clear an integrity hold after you have reviewed what happened
-  /craft-status                  where each investigation stands and whose turn it is
+  /craft-status                  the board: hypotheses, experiments, open questions, whose turn it is
   /craft-decisions               the log of your decisions
   /craft-explain <id>            walk a finding's evidence chain (e.g. F-0001, R-0002)
   /craft-help                    this list
-Add --inv <id> when more than one investigation is open. Everything else is the agent's job."""
+Everything you plan stays editable: problem, hypotheses, experiment plans, literature, questions.
+Just tell the agent what to add, park, drop or pursue. Add --inv <id> when several investigations are open."""
 
 
 def decisions_text(prog: Programme, inv_id: str | None = None) -> str:
@@ -128,6 +142,8 @@ def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
         raise CraftError(f"no memory entry {entry_id}")
     out = [f"[{rec['kind']}] {entry_id}: {rec.get('claim') or rec.get('question')}",
            f"  investigation: {rec.get('investigation')}  closed: {rec.get('closed', '')[:10]}"]
+    if rec.get("post_hoc"):
+        out.append("  POST-HOC: the criterion was changed after registration; the label is the pre-registered one")
     lin = rec.get("lineage")
     if not lin:
         out.append("  (no evidence lineage: this entry is an open question or anomaly)")
@@ -143,10 +159,11 @@ def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
         ok = p.exists() and sha256_file(p) == e["sha256"]
         broken += 0 if ok else 1
         out.append(f"  evidence {e['path']} (sha256 {e['sha256'][:12]}): {'resolves' if ok else 'BROKEN'}")
-    hyp = prog.archive_dir / rec["investigation"] / "hypothesis.md"
+    hyp_rel = lin.get("hypothesis_file") or f"archive/{rec['investigation']}/hypothesis.md"  # v1 archives
+    hyp = prog.root / hyp_rel
     ok = hyp.exists() and (lin.get("hypothesis_sha256") is None or sha256_file(hyp) == lin["hypothesis_sha256"])
     broken += 0 if ok else 1
-    out.append(f"  frozen hypothesis archive/{rec['investigation']}/hypothesis.md: {'resolves' if ok else 'BROKEN'}")
+    out.append(f"  registered hypothesis {hyp_rel}: {'resolves' if ok else 'BROKEN'}")
     out.append(f"  env v{lin.get('env_version')}; seeds {lin.get('seeds')}; data {lin.get('data_ids')}")
     out.append("Every link resolves." if not broken else f"{broken} link(s) do not resolve.")
     return "\n".join(out), broken

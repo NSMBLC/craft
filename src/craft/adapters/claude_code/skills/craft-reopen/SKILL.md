@@ -1,6 +1,6 @@
 ---
 name: craft-reopen
-description: Go back: withdraw the problem approval (`/craft-reopen problem`) or restart review after a genuine design change (`/craft-reopen review`).
+description: Retired. Nothing is frozen any more; edit the files instead (a changed problem is re-approved, a capped review restarts once the hypothesis changes).
 ---
 
 Usage: `/craft-reopen problem|review [--note "..."] [--inv <id>]`

@@ -139,23 +139,23 @@ def _typed_decision(prog: Programme, payload: dict, prompt: str) -> str | None:
 
 
 def _next_step(verb: str, opts: dict, result: str) -> str:
-    """What the agent does after each decision. Pre-freeze phases are collaborative: propose,
-    then wait. Execution (after a package approval) runs itself. Closure ends the investigation."""
+    """What the agent does after each decision. Framing and design are collaborative: propose,
+    then wait. Experiments on registered hypotheses run themselves. Closure ends the investigation."""
     if verb == "approve":
         if "Environment is now" in result:
-            return "Then resume execution where it halted, without asking."
+            return "Then resume the experiments where they halted, without asking."
+        if "Changed problem statement" in result:
+            return "Then continue where you were; mention any hypothesis the change affects."
         return ("Then propose the literature scope in a few lines (which venues/years/keywords, what is "
                 "out of scope) and WAIT for the researcher's go-ahead before searching or drafting anything.")
     if verb == "reject":
-        return "Then continue execution with the current environment, or report what cannot be done without the change."
+        return "Then continue with the current environment, or report what cannot be done without the change."
     if verb == "close":
         return "Then summarise what went to findings, refuted and open questions. Do not start a new investigation unprompted."
     if verb == "reopen":
-        if opts.get("subject") == "problem":
-            return "Then ask what the researcher wants changed in problem.md; do not edit it on your own."
-        return "Then request the new review round only when the researcher says the design is ready."
+        return "Then ask the researcher what they want changed; the files are editable, so make the change they ask for."
     if verb == "resolve":
-        return "Then report the current phase and wait."
+        return "Then report the board (`craft status`) and wait."
     return ""
 
 

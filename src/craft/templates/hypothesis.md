@@ -1,6 +1,7 @@
 ---
-status: draft            # not binding until review concludes; `craft review` freezes it
-claim: ""                # exactly one falsifiable sentence
+claim: ""                # exactly one falsifiable sentence (an idea can be just this line)
+origin: researcher       # researcher | agent
+derived_from: ""         # what prompted it: a verdict, experiment, source (lit:<key>) or question
 warrant: ""              # why the planned evidence bears on the claim
 criteria:
   - name: C1
@@ -27,6 +28,7 @@ power:
   detectable: ""         # statement of why the planned runs can detect the effect
 ---
 
-# Hypothesis — {id}
+# Hypothesis {hid} — {id}
 
-Draft. Editable until review concludes; then frozen and immutable.
+A draft until `craft review` registers it. The file stays editable after that: a change to the
+criteria or outcome rule after registration is recorded as post-hoc in every verdict and memory entry.

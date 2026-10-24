@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .integrity import make_writable
 from .paths import InvestigationPaths
 from .state import InvestigationState
 from .util import CraftError, now_iso, read_yaml, sha256_file, write_yaml
@@ -11,15 +12,13 @@ from .util import CraftError, now_iso, read_yaml, sha256_file, write_yaml
 
 def init_lock(inv: InvestigationPaths, state: InvestigationState, source: Path | None) -> None:
     """Record env.lock v1 from `source` (e.g. uv.lock / requirements.txt) or an empty lock."""
-    if inv.env_lock.exists():
-        inv.env_lock.chmod(0o644)
+    make_writable(inv.env_lock)
     if source is not None:
         if not source.exists():
             raise CraftError(f"{source} does not exist")
         inv.env_lock.write_bytes(source.read_bytes())
     else:
         inv.env_lock.write_text("# CRAFT environment lock (empty)\n", encoding="utf-8")
-    inv.env_lock.chmod(0o444)
     state.env.version = 1
     state.env.lock_sha256 = sha256_file(inv.env_lock)
     state.env.history.append({"version": 1, "when": now_iso(), "sha256": state.env.lock_sha256, "note": "initial lock"})
@@ -32,8 +31,8 @@ def propose(inv: InvestigationPaths, state: InvestigationState, package: str, re
             "until the researcher types `/craft-approve` (or `/craft-reject --note ...`)."
         )
     prop = {"package": package, "reason": reason, "when": now_iso(), "from_version": state.env.version}
+    make_writable(inv.env_proposal)
     write_yaml(inv.env_proposal, prop)
-    inv.env_proposal.chmod(0o444)
     state.env.pending_proposal = prop
     return prop
 
@@ -42,7 +41,7 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_lock: Path |
     prop = state.env.pending_proposal
     if not prop:
         raise CraftError("no pending environment proposal")
-    inv.env_lock.chmod(0o644)
+    make_writable(inv.env_lock)
     if new_lock is not None:
         if not new_lock.exists():
             raise CraftError(f"{new_lock} does not exist")
@@ -50,7 +49,6 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_lock: Path |
     else:
         with inv.env_lock.open("a", encoding="utf-8") as f:
             f.write(f"{prop['package']}  # added v{state.env.version + 1} {now_iso()}\n")
-    inv.env_lock.chmod(0o444)
     state.env.version += 1
     state.env.lock_sha256 = sha256_file(inv.env_lock)
     state.env.history.append({
@@ -59,7 +57,6 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_lock: Path |
     })
     state.env.pending_proposal = None
     if inv.env_proposal.exists():
-        inv.env_proposal.chmod(0o644)
         inv.env_proposal.unlink()
     return state.env.version
 
@@ -71,7 +68,6 @@ def reject(inv: InvestigationPaths, state: InvestigationState, note: str) -> Non
     state.env.history.append({"version": state.env.version, "when": now_iso(), "note": f"rejected {prop['package']}: {note}"})
     state.env.pending_proposal = None
     if inv.env_proposal.exists():
-        inv.env_proposal.chmod(0o644)
         inv.env_proposal.unlink()
 
 
@@ -81,7 +77,7 @@ def verify_lock(inv: InvestigationPaths, state: InvestigationState) -> str | Non
     if not inv.env_lock.exists():
         return "env.lock is missing"
     if sha256_file(inv.env_lock) != state.env.lock_sha256:
-        return "env.lock was modified outside `craft approve`"
+        return "env.lock was modified outside `craft` (changes go through `craft propose package` + `/craft-approve`)"
     return None
 
 

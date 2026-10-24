@@ -1,11 +1,15 @@
-"""literature/sources.yaml: prior work as a conversation (Journey 2)."""
+"""literature/sources.yaml: prior work as a conversation (Journey 2).
+
+Always open: new searches can add sources at any point before closure. Each entry is date-stamped,
+and every review round keeps the exact documents the referee saw (review/<id>/round-<n>.prompt.md).
+"""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from ..util import CraftError, read_yaml, sha256_file, write_yaml
+from ..util import CraftError, now_iso, read_yaml, sha256_file, write_yaml
 from .common import Validation, nonempty
 
 USED_FIELDS = ("claims", "method", "relation", "does_not_cover")
@@ -40,7 +44,7 @@ def add_source(
     data = load_sources(path)
     if any(s.get("key") == key for s in data["sources"]):
         raise CraftError(f"source '{key}' already exists in {path}")
-    entry: dict = {"key": key, "title": title}
+    entry: dict = {"key": key, "title": title, "added": now_iso()}
     if fulltext is not None:
         if not fulltext.exists() or fulltext.stat().st_size == 0:
             raise CraftError(

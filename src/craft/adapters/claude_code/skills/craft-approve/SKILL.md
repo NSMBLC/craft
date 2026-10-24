@@ -1,6 +1,6 @@
 ---
 name: craft-approve
-description: Approve what the agent is waiting on: the one-page problem statement, or a proposed package addition.
+description: Approve what the agent is waiting on: the one-page problem statement (or a changed version of it), or a proposed package addition.
 ---
 
 Usage: `/craft-approve` (add `problem` or `package` only to be explicit; `--inv <id>` if several investigations are open)
