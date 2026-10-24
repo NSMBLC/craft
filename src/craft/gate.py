@@ -15,9 +15,15 @@ from .paths import ARCHIVE_DIR, INVESTIGATIONS_DIR, MEMORY_DIR, PROGRAMME_MARKER
 from .state import InvestigationState, Phase
 from .util import CraftError
 
-HUMAN_ONLY = ("approve", "close", "reopen", "untaint")  # `craft <verb>` and `craft env approve`
+HUMAN_ONLY = ("approve", "reject", "close", "reopen", "resolve")  # `craft <verb> ...`
 HUMAN_ONLY_RE = re.compile(
-    r"\bcraft\b[^;&|\n]*?\b(approve|close|reopen|untaint)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"\bcraft\b[^;&|\n]*?\b(approve|reject|close|reopen|resolve|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"|\buser-prompt-submit\b|\bhooks\.py\b|\bcraft\.hooks\b|\bcraft\.decisions\b|\bdecisions\.py\b"
+)
+# Not file writes: `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null`, an email in angle
+# brackets (`<name@host>` in commit trailers), and `->` / `=>` arrows in prose.
+HARMLESS_REDIRECT_RE = re.compile(
+    r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null|<[^<>\s]+@[^<>\s]+>|[-=]>"
 )
 MUTATION_RE = re.compile(
     r"(?<![<>])>{1,2}(?!>)|\btee\b|\bmv\b|\bcp\b|\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
@@ -66,8 +72,8 @@ def decide_write(prog: Programme, target: Path) -> Decision:
     if head == MEMORY_DIR:
         return Decision.deny(
             f"{rel}: institutional memory accepts entries only through the closing of an investigation "
-            "(`craft close`, run by the researcher). Record the result as a verdict and close the "
-            "investigation instead.",
+            "(the researcher types `/craft-close`). Record the result as a verdict and let the "
+            "investigation close instead.",
             "5.6",
         )
     if head == ARCHIVE_DIR:
@@ -109,7 +115,7 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) 
         return Decision.deny(
             f"problem.md of {inv} was approved by the researcher on "
             f"{_approval_date(state, 'problem')} and is frozen. If the framing must change, the "
-            "researcher runs `craft reopen problem`; if the question itself changed, open a new "
+            "researcher types `/craft-reopen problem`; if the question itself changed, open a new "
             "investigation.",
             "1.6",
         )
@@ -120,7 +126,7 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) 
         if ph == Phase.FRAMING:
             return Decision.deny(
                 "the problem statement has not been approved yet; the hypothesis is drafted after "
-                "`craft approve problem`."
+                "the researcher types `/craft-approve`."
             )
         return Decision.deny(
             f"hypothesis.md of {inv} is frozen: review concluded clean on {state.review.frozen_at} "
@@ -133,7 +139,7 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) 
     if inner.parts and inner.parts[0] == "review":
         if re.fullmatch(r"round-\d+\.json", inner.name):
             return Decision.deny(
-                "review files are written only by the referee (`craft review request`). The agent "
+                "review files are written only by the referee (`craft review`). The agent "
                 "never authors or edits a review.",
                 "4.1",
             )
@@ -152,12 +158,12 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath) 
 
     if name == "env.lock":
         return Decision.deny(
-            "env.lock changes only through `craft env propose` (agent) followed by "
-            "`craft env approve` (researcher).",
+            "env.lock changes only through `craft propose package` (agent) followed by "
+            "`/craft-approve` (researcher).",
             "6.1",
         )
     if name == "env.proposal.yaml":
-        return Decision.deny("environment proposals are written with `craft env propose`.")
+        return Decision.deny("package proposals are written with `craft propose package`.")
 
     if inner.parts and inner.parts[0] == "experiments":
         if re.fullmatch(r"verdict-.*\.md", inner.name):
@@ -209,13 +215,13 @@ def _tasks_reason(state: InvestigationState) -> str:
     if ph == Phase.FRAMING:
         return (
             "tasks.md cannot be written: the problem statement is not approved and the design has "
-            "not been reviewed. Order is: approve problem -> draft hypothesis -> `craft review "
-            "request` -> answer objections -> freeze -> tasks."
+            "not been reviewed. Order is: approve problem -> draft hypothesis -> `craft review` "
+            "-> answer objections -> freeze -> tasks."
         )
     if ph == Phase.DESIGNING:
         return (
-            "tasks.md cannot be written: the hypothesis has not been reviewed. Run `craft review "
-            "request` and answer any blocking objections; tasks are written once review concludes."
+            "tasks.md cannot be written: the hypothesis has not been reviewed. Run `craft review` "
+            "and answer any blocking objections; tasks are written once review concludes."
         )
     if ph == Phase.RESPONDING:
         ids = ", ".join(state.open_blocking)
@@ -243,12 +249,13 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     """
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
-            "that `craft` command is a researcher decision (approve / close / reopen / untaint / env "
-            "approve). Ask the researcher to run it themselves, e.g. `! craft approve problem` in the "
-            "prompt or in a second terminal. The agent cannot approve on their behalf.",
+            "that `craft` command is a researcher decision (approve / reject / close / reopen / resolve). "
+            "Ask the researcher to type it as a slash command (e.g. `/craft-approve`); "
+            "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",
         )
-    if not MUTATION_RE.search(command):
+    mutation = MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command))
+    if not mutation:
         return Decision.ok()
     base = cwd or Path.cwd()
     try:
@@ -271,5 +278,9 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
         seen.add(key)
         d = decide_write(prog, p)
         if not d.allow:
-            return Decision.deny(f"(shell) {d.reason}", d.checkpoint)
+            return Decision.deny(
+                f"(shell) {d.reason} [the command looked like a write because of `{mutation.group(0)}` and "
+                f"mentions `{tok}`; if it does not write that file, rephrase the command]",
+                d.checkpoint,
+            )
     return Decision.ok()

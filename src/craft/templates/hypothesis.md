@@ -1,5 +1,5 @@
 ---
-status: draft            # not binding until review concludes; `craft review request` freezes it
+status: draft            # not binding until review concludes; `craft review` freezes it
 claim: ""                # exactly one falsifiable sentence
 warrant: ""              # why the planned evidence bears on the claim
 criteria:

@@ -43,6 +43,8 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
     criteria = {c["name"]: c for c in hyp_fm.get("criteria", []) if isinstance(c, dict)}
 
     for v in state.verdicts:
+        if v.label.startswith("kill-"):
+            continue  # kill checks are not claims; a fired kill is routed below
         vfile = inv.root / v.file
         vfm, _ = split_frontmatter(vfile.read_text(encoding="utf-8")) if vfile.exists() else ({}, "")
         crit = criteria.get(v.criterion, {})

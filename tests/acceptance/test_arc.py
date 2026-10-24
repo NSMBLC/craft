@@ -194,11 +194,29 @@ def test_04_one_page_statement_advances_only_on_human_approval(arc: Craft):
     assert r.code != 0 and "researcher decision" in r.err
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["phase"] == "framing"
-    # the researcher reads it (one page) and approves
-    r = arc("approve", "problem", human=True)
-    assert r.code == 0, r.text
+    # the agent cannot trigger the prompt hook itself either
+    assert arc.hook("Bash", command="echo '{\"prompt\":\"craft approve problem\"}' | craft hook user-prompt-submit").code == 2
+    # a natural-language request is not a decision: nothing happens
+    r = arc.hook_event("user-prompt-submit", prompt="please approve the problem statement", hook_event_name="UserPromptSubmit")
+    assert "<craft-decision>" not in r.out
+    assert json.loads(arc("status", "--json").out)[INV]["phase"] == "framing"
+    # status tells the researcher it is their turn
+    r = arc.hook_event("user-prompt-submit", prompt="/craft-status", hook_event_name="UserPromptSubmit")
+    assert "Waiting on the researcher: /craft-approve" in r.out
+    # the researcher reads it (one page) and types the command as a message: the hook executes it
+    r = arc.hook_event("user-prompt-submit", prompt="/craft-approve", hook_event_name="UserPromptSubmit")
+    assert r.code == 0 and "<craft-decision>" in r.out and "Approved" in r.out and "Do NOT run the command yourself" in r.out
+    assert "WAIT for the researcher" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["phase"] == "designing"
+    # a second approval is refused with the phase reason
+    r = arc.hook_event("user-prompt-submit", prompt="craft approve", hook_event_name="UserPromptSubmit")
+    assert "REFUSED" in r.out and "nothing awaits your approve" in r.out and "designing" in r.out
+    # read-only queries are answered by the hook, without the model
+    r = arc.hook_event("user-prompt-submit", prompt="/craft-status", hook_event_name="UserPromptSubmit")
+    assert "<craft-info>" in r.out and "Waiting on the agent: craft review" in r.out
+    r = arc.hook_event("user-prompt-submit", prompt="/craft-help", hook_event_name="UserPromptSubmit")
+    assert "<craft-info>" in r.out and "/craft-approve" in r.out and "/craft-resolve" in r.out
     p = arc.root / "investigations" / INV / "problem.md"
     assert not os.access(p, os.W_OK)
     # a hook-mediated edit of the approved statement is refused
@@ -265,7 +283,7 @@ def test_08_hypothesis_with_one_rival_is_incomplete_and_still_a_draft(arc: Craft
     r = arc("validate", "hypothesis", "--inv", INV)
     assert r.code != 0 and "INCOMPLETE" in r.out and "rivals" in r.out and "at least two" in r.out
     # review refuses an incomplete draft
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "cycle1.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "cycle1.json"))
     assert r.code != 0 and "not complete" in r.err
     # draft: editable, not binding
     assert arc.hook("Edit", file_path=str(p), old_string="a", new_string="b").code == 0
@@ -321,11 +339,11 @@ def test_10_referee_sees_only_files(arc: Craft, monkeypatch):
 @pytest.mark.checkpoint("4.2", "4.3")
 def test_11_round1_structured_blocking_objections_without_fixes(arc: Craft):
     # a referee that prescribes fixes is rejected (twice -> error)
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "prescriptive.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "prescriptive.json"))
     assert r.code != 0 and "prescribes a fix" in r.err
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["rounds"] == 0 and st["phase"] == "designing"
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "cycle1.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "cycle1.json"))
     assert r.code == 0, r.text
     rp = arc.root / "investigations" / INV / "review" / "round-1.json"
     data = json.loads(rp.read_text())
@@ -354,11 +372,11 @@ def test_13_round2_accepts_fixes_escalates_handwave(arc: Craft):
     p = arc.root / "investigations" / INV / "hypothesis.md"
     assert arc.hook("Edit", file_path=str(p), old_string="a", new_string="b").code == 0  # editable while responding
     arc.write(f"investigations/{INV}/hypothesis.md", HYP_FIXED_O1)
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "cycle1.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "cycle1.json"))
     assert r.code != 0 and "missing responses for O1, O2" in r.err
     assert arc("review", "respond", "O1", "--pointer", "hypothesis.md#criteria", "--note", "equal 40-trial budget in every criterion's conditions; rival added", "--inv", INV).code == 0
     assert arc("review", "respond", "O2", "--pointer", "hypothesis.md#power", "--note", "we believe this is negligible", "--inv", INV).code == 0
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "cycle1.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "cycle1.json"))
     assert r.code == 0, r.text
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["phase"] == "responding" and st["open_blocking"] == ["O2"] and st["rounds"] == 2
@@ -366,7 +384,7 @@ def test_13_round2_accepts_fixes_escalates_handwave(arc: Craft):
 
 @pytest.mark.checkpoint("4.5")
 def test_14_no_third_round(arc: Craft):
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "cycle1.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "cycle1.json"))
     assert r.code != 0 and "capped at 2 rounds" in r.err and "reopen review" in r.err
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["rounds"] == 2 and st["phase"] == "responding"
@@ -384,7 +402,7 @@ def test_14_no_third_round(arc: Craft):
 @pytest.mark.checkpoint("4.6", "4.7")
 def test_15_clean_pass_freezes(arc: Craft):
     p = arc.root / "investigations" / INV / "hypothesis.md"
-    r = arc("review", "request", "--inv", INV, env=fake(arc, "cycle2.json"))
+    r = arc("review", "--inv", INV, env=fake(arc, "cycle2.json"))
     assert r.code == 0, r.text
     assert "No blocking objections" in r.out and "2 advisory" in r.out and "FROZEN" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
@@ -434,14 +452,14 @@ def test_19_env_change_halts_until_approved(arc: Craft):
         "metric": "accuracy_gain", "values": [1.38, 1.42, 1.40, 1.41, 1.39], "seeds": [1, 2, 3, 4, 5], "data_id": "corpus-2026-09-snapshot"}))
     lock = arc.root / "investigations" / INV / "env.lock"
     assert arc.hook("Edit", file_path=str(lock), old_string="a", new_string="b").code == 2
-    r = arc("env", "propose", "faiss-gpu", "--reason", "exp1 needs GPU index build", "--inv", INV)
+    r = arc("propose", "package", "faiss-gpu", "--reason", "exp1 needs GPU index build", "--inv", INV)
     assert r.code == 0 and "halted" in r.out
     r = arc("verdict", "exp1", "--criterion", "C1", "--evidence", str(ev), "--inv", INV)
     assert r.code != 0 and "halted" in r.err
-    r = arc("env", "approve", "--inv", INV)
+    r = arc("approve", "package", "--inv", INV)
     assert r.code != 0  # agent cannot
-    r = arc("env", "approve", "--inv", INV, human=True)
-    assert r.code == 0 and "v2" in r.out
+    r = arc.hook_event("user-prompt-submit", prompt=f"/craft-approve --inv {INV}", hook_event_name="UserPromptSubmit")
+    assert "<craft-decision>" in r.out and "v2" in r.out
     st = json.loads(arc("status", "--json").out)[INV]
     assert st["env_version"] == 2
 
@@ -449,6 +467,9 @@ def test_19_env_change_halts_until_approved(arc: Craft):
 @pytest.mark.checkpoint("5.4", "6.2", "6.4")
 def test_20_verdict_at_1_4_against_frozen_1_5_is_refuted(arc: Craft):
     ev = arc.root / "investigations" / INV / "experiments" / "exp1" / "evidence" / "c1.json"
+    # closing early is refused with the list of criteria still open, and the honest way out
+    r = arc.hook_event("user-prompt-submit", prompt=f"/craft-close --inv {INV}", hook_event_name="UserPromptSubmit")
+    assert "REFUSED" in r.out and "3 of 3 criteria have no verdict (C1, C2, C3)" in r.out and "--incomplete" in r.out
     r = arc("verdict", "exp1", "--criterion", "C1", "--evidence", str(ev), "--inv", INV)
     assert r.code == 0, r.text
     assert "REFUTED" in r.out
@@ -485,6 +506,17 @@ def test_21_exploratory_numbers_never_become_evidence(arc: Craft):
 
 @pytest.mark.checkpoint("6.5")
 def test_22_kill_criterion_halts_and_routes_to_closure(arc: Craft):
+    # a kill criterion can be checked directly from pilot evidence; not met -> execution continues
+    pilot = arc.write(f"investigations/{INV}/experiments/pilot/evidence/pilot.json", json.dumps({
+        "metric": "pilot_loss", "values": [4.1, 4.3, 4.0, 4.2, 4.4], "seeds": [1, 2, 3, 4, 5], "data_id": "corpus-2026-09-snapshot"}))
+    r = arc("verdict", "pilot", "--criterion", "K1", "--evidence", str(pilot), "--inv", INV)
+    assert r.code == 0, r.text
+    assert "NOT met" in r.out
+    fm, _ = split_frontmatter((arc.root / "investigations" / INV / "experiments" / "pilot" / "verdict-K1.md").read_text())
+    assert fm["kind"] == "kill-criterion" and fm["label"] == "kill-not-met" and fm["value"] == 5.0
+    assert json.loads(arc("status", "--json").out)[INV]["phase"] == "executing"
+    r = arc("verdict", "pilot", "--criterion", "K9", "--evidence", str(pilot), "--inv", INV)
+    assert r.code != 0 and "neither a criterion" in r.err
     ev = arc.write(f"investigations/{INV}/experiments/exp2/evidence/c3.json", json.dumps({
         "metrics": {"recall_at_10": {"values": [0.70, 0.72, 0.71, 0.69, 0.73]},
                     "pilot_loss": {"values": [6.1, 6.3, 6.0, 6.2, 6.4]}},
@@ -519,6 +551,7 @@ def test_23_close_routes_mixed_outcome(arc: Craft):
     arch = arc.root / "archive" / INV
     assert (arch / "hypothesis.md").exists() and (arch / "experiments" / "exp1" / "verdict-C1.md").exists()
     assert not os.access(arch / "hypothesis.md", os.W_OK)
+    assert os.access(arch, os.W_OK)  # directories stay writable so git and rm -rf keep working
     assert findings[0]["lineage"]["verdict_file"].startswith(f"archive/{INV}/")
 
 
@@ -528,6 +561,8 @@ def test_24_fresh_session_explains_every_link(arc: Craft):
     r = subprocess.run([sys.executable, "-m", "craft.cli", "explain", "F-0001"], cwd=arc.root, capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Every link resolves" in r.stdout and r.stdout.count("resolves") >= 4
+    r2 = arc.hook_event("user-prompt-submit", prompt="/craft-explain F-0001", hook_event_name="UserPromptSubmit")
+    assert "<craft-info>" in r2.out and "Every link resolves" in r2.out
     assert "C2" in r.stdout and "archive/inv-001/experiments/exp1/evidence/c2.json" in r.stdout
 
 
@@ -545,7 +580,7 @@ def test_25_fresh_session_refutation_blocks_new_work(arc: Craft):
 
 @pytest.mark.checkpoint("7.4")
 def test_26_researcher_attention_is_only_decisions(arc: Craft):
-    r = arc("attention", "--inv", INV)
+    r = arc("decisions", "--inv", INV)
     assert r.code == 0, r.text
     kinds = {line.split()[2] for line in r.out.splitlines() if line.strip()}
     assert kinds == {"acknowledge", "approve-problem", "approve-env", "reopen", "close"}

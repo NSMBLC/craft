@@ -39,19 +39,23 @@ agent playbook, and a `/craft` skill. It never overwrites files you already have
 ## Every day
 
 Talk to the agent in plain language. It runs `craft recall`, `craft new`, `craft validate`,
-`craft lit add`, `craft review request`, `craft verdict` and so on. You read one-page artifacts
-and make five kinds of decisions, each in your own terminal (or as `! craft …` in the prompt):
+`craft literature add`, `craft review`, `craft verdict` and so on. You read one-page artifacts
+and make five kinds of decisions as slash commands in the session (they autocomplete; the plain
+`craft ...` forms also work typed as a message or in a terminal of your own):
 
 ```
-craft approve problem     # after reading the one-page statement
-craft env approve         # accept a proposed package addition
-craft close               # close the investigation; memory is written here only
-craft reopen <problem|review>
-craft untaint
+/craft-approve            # approve what the agent is waiting on: the one-page statement, or a package
+/craft-reject --note "…"  # refuse a proposed package
+/craft-close              # close the investigation; memory is written here only
+/craft-reopen problem|review
+/craft-resolve --note "…" # clear an integrity hold
+/craft-status  /craft-help  /craft-decisions  /craft-explain <id>   # answered directly, no model turn
 ```
 
-The agent cannot run these: the hook denies them, the CLI refuses inside an agent tool call,
-and they need an interactive terminal.
+Typed as a slash command or message, the decision never reaches the model: Claude Code hands every prompt to
+CRAFT's UserPromptSubmit hook first, which executes the decision and tells the model the outcome.
+The agent cannot do this itself: the hook denies it invoking `craft hook` or any approval command,
+the CLI refuses inside an agent tool call, and the terminal form needs an interactive TTY.
 
 ## Layout of a programme
 

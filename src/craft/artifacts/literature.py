@@ -68,7 +68,7 @@ def add_source(
 def validate_literature(path: Path) -> Validation:
     v = Validation("literature/sources.yaml")
     if not path.exists():
-        v.error("sources.yaml", "missing — run `craft lit add` for each source consulted")
+        v.error("sources.yaml", "missing — run `craft literature add` for each source consulted")
         return v
     data = load_sources(path)
     used = [s for s in data["sources"] if s.get("status") == "used"]

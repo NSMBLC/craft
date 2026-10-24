@@ -33,18 +33,39 @@ Note on model behaviour: with the CRAFT `CLAUDE.md` present, the model refused e
 on its own before any hook fired. The hook results above were obtained with `CLAUDE.md`
 temporarily removed, so they demonstrate the mechanical layer alone.
 
-## Still to verify by the researcher (needs an interactive session)
+## Verified by the researcher (2026-09-22)
 
-- Whether `! craft approve problem` typed in the Claude Code prompt runs with a TTY on stdin.
-  If not, the command prints "needs an interactive terminal"; run it in a second terminal.
-  Either way the agent cannot run it (hook + env check + TTY check).
-- Whether `! …` bash mode bypasses PreToolUse hooks (expected: yes, it is not a tool call).
+- `! craft approve problem` typed in the Claude Code prompt is refused by the CLI: `!` commands
+  inherit the session environment, including `CLAUDECODE`, so they are indistinguishable from
+  the agent's own Bash calls. Researcher-only commands must be run in a terminal outside the
+  session. All messages now say so.
+- `! …` bash mode does not trigger PreToolUse hooks (the refusal came from the CLI, not the hook).
+
+## Researcher decisions typed as messages
+
+Because `!` inherits the agent environment, the in-session channel for researcher decisions is
+the prompt itself. Claude Code passes every typed prompt to the `UserPromptSubmit` hook before
+the model sees it. When the prompt is exactly a decision command (`/craft-approve`, `/craft-reject --note`,
+`/craft-close`, `/craft-reopen problem|review`, `/craft-resolve --note`, or the same with `craft ` in
+place of `/craft-`, each with optional `--inv/...`), `craft hook user-prompt-submit` executes it and injects a
+`<craft-decision>` block telling the model the outcome and not to run the command itself.
+
+Why the agent cannot use this channel: it cannot type into the prompt; the Bash screen denies any
+agent command mentioning `craft hook`, `user-prompt-submit`, `craft.hooks` or `craft.decisions`;
+and the terminal form still requires no agent env vars plus a TTY. Typing the exact command is
+the confirmation (no y/N), so the agent's instruction is to say "type `/craft-approve`
+when you have read it", never to run it. Read-only queries (`/craft-status`, `/craft-help`,
+`/craft-decisions`, `/craft-explain <id>`) use the same channel and are answered in a
+`<craft-info>` block without a model turn. The slash form is a skill installed by `craft init`, so it
+autocompletes; verified live that the hook receives the raw `/craft-...` text before expansion.
+
+## Still to verify
 - Whether a `Stop` hook returning `{"decision":"block"}` is honoured in the current version.
   If not, the integrity report still arrives at SessionStart and before every transition.
 
 ## Deny-listed tokens in agent shell commands
 
-`craft approve|close|reopen|untaint`, `craft env approve`, `CRAFT_ALLOW_NON_TTY`, and any
+`craft approve|reject|close|reopen|resolve`, `craft hook`, `CRAFT_ALLOW_NON_TTY`, and any
 mutating command (`>`, `>>`, `tee`, `mv`, `cp`, `rm`, `chmod`, `sed -i`, `truncate`, …) whose
 path tokens resolve to a gated file. This is heuristic; the backstops are chmod 444 + hashes
 (`craft verify`, run at SessionStart/Stop and before every transition).

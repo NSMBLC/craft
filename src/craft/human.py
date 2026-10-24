@@ -22,8 +22,9 @@ def require_human(action: str) -> None:
         if os.environ.get(var):
             raise CraftError(
                 f"`craft {action}` is a researcher decision and this process is running inside an "
-                f"agent tool call ({var} is set). The researcher runs it: `! craft {action}` in the "
-                "prompt, or in a second terminal."
+                f"agent tool call ({var} is set). The researcher types `/craft-{action}` in the session "
+                "(CRAFT's prompt hook executes it), or runs it in a terminal outside the session. "
+                "Commands typed with `!` inherit the agent environment and are refused."
             )
     if os.environ.get("CRAFT_ALLOW_NON_TTY") == "1":
         return

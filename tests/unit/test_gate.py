@@ -60,11 +60,35 @@ def test_bash_screen(tmp_path):
     (tmp_path / "craft.yaml").write_text("version: 1\n")
     prog = Programme(tmp_path)
     assert not decide_bash(prog, "craft approve problem", tmp_path).allow
-    assert not decide_bash(prog, "cd x && craft  env approve", tmp_path).allow
+    assert not decide_bash(prog, "cd x && craft  approve package", tmp_path).allow
+    assert not decide_bash(prog, "craft resolve --note x", tmp_path).allow
     assert not decide_bash(prog, "CRAFT_ALLOW_NON_TTY=1 craft close", tmp_path).allow
+    assert not decide_bash(prog, "echo {} | craft hook user-prompt-submit", tmp_path).allow
+    assert not decide_bash(prog, "python -c 'import craft.hooks'", tmp_path).allow
     assert not decide_bash(prog, "echo '{}' >> memory/findings.jsonl", tmp_path).allow
     assert not decide_bash(prog, "sed -i '' 's/1.5/1.4/' investigations/inv-1/hypothesis.md", tmp_path).allow
     assert not decide_bash(prog, "chmod 644 investigations/inv-1/hypothesis.md", tmp_path).allow
     assert decide_bash(prog, "cat memory/findings.jsonl", tmp_path).allow
     assert decide_bash(prog, "craft status && craft recall 'x'", tmp_path).allow
     assert decide_bash(prog, "python train.py --out results/run1.json", tmp_path).allow
+
+
+def test_bash_screen_ignores_harmless_redirects(tmp_path):
+    (tmp_path / "craft.yaml").write_text("version: 1\n")
+    prog = Programme(tmp_path)
+    assert decide_bash(prog, "ls -la .claude 2>&1 | head", tmp_path).allow
+    assert decide_bash(prog, "cat .claude/settings.json 2>/dev/null", tmp_path).allow
+    assert decide_bash(prog, "craft verify >/dev/null 2>&1; cat memory/findings.jsonl", tmp_path).allow
+    assert not decide_bash(prog, "echo x > .claude/settings.json 2>&1", tmp_path).allow
+    assert not decide_bash(prog, "cat x >> memory/findings.jsonl", tmp_path).allow
+
+
+def test_bash_screen_ignores_emails_and_arrows(tmp_path):
+    (tmp_path / "craft.yaml").write_text("version: 1\n")
+    prog = Programme(tmp_path.resolve())
+    cmd = ('git add .claude CLAUDE.md craft.yaml memory && git commit -q -m "Initialize CRAFT scaffolding\n\n'
+           'Co-Authored-By: Claude <noreply@anthropic.com>" && git log --oneline --stat | head -30')
+    assert decide_bash(prog, cmd, tmp_path.resolve()).allow
+    assert decide_bash(prog, 'git commit -m "craft init -> scaffolding; a => b" craft.yaml', tmp_path.resolve()).allow
+    d = decide_bash(prog, "echo x > craft.yaml", tmp_path.resolve())
+    assert not d.allow and "looked like a write because of `>`" in d.reason
