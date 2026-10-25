@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     "referee": {
         "backend": "claude",  # claude | command | fake
         "model": "opus",
+        "use_api_key": False,  # claude backend: false = ignore ANTHROPIC_API_KEY/AUTH_TOKEN, use the Claude login
         "command": None,  # for backend=command: prompt on stdin, JSON on stdout
     },
     "recall": {

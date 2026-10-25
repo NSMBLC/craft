@@ -2,7 +2,9 @@
 
 Backends:
   claude  — `claude -p` with no tools, no settings sources, no session persistence, a
-            system prompt from templates, and a JSON schema for the output.
+            system prompt from templates, and a JSON schema for the output. It uses the
+            researcher's Claude login: API credentials in the environment are removed unless
+            `referee.use_api_key: true` is set in craft.yaml.
   command — any shell command; receives the full prompt on stdin, must print JSON.
   fake    — deterministic; reads `CRAFT_FAKE_REFEREE` (path to JSON with keys "1" and "2",
             or "H2:1" for one hypothesis) for tests and demos.
@@ -20,6 +22,9 @@ from pathlib import Path
 
 from .paths import InvestigationPaths
 from .util import CraftError
+
+# Credentials `claude -p` would silently prefer over the researcher's login.
+API_KEY_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
 DOC_ORDER = ("problem.md", "{hypothesis}", "literature/map.md", "literature/sources.yaml")
 
@@ -118,7 +123,7 @@ def _claude(config: dict, system_prompt: str, user_prompt: str, schema: dict) ->
         try:
             proc = subprocess.run(
                 args, input=user_prompt, capture_output=True, text=True, cwd=tmp,
-                env=_clean_env(), timeout=int(config.get("timeout_s", 900)),
+                env=_clean_env(strip_api_keys=not config.get("use_api_key", False)), timeout=int(config.get("timeout_s", 900)),
             )
         except subprocess.TimeoutExpired as e:
             raise CraftError("referee timed out") from e
@@ -127,11 +132,27 @@ def _claude(config: dict, system_prompt: str, user_prompt: str, schema: dict) ->
     return _parse_claude_output(proc.stdout)
 
 
-def _clean_env() -> dict:
+def _clean_env(strip_api_keys: bool = False) -> dict:
     env = dict(os.environ)
     for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PROJECT_DIR"):
         env.pop(k, None)
+    if strip_api_keys:
+        for k in API_KEY_VARS:
+            env.pop(k, None)
     return env
+
+
+def credential_note(config: dict, backend: str) -> str | None:
+    """One line saying which credential the claude backend bills, when the environment holds a key."""
+    if backend != "claude":
+        return None
+    present = [k for k in API_KEY_VARS if os.environ.get(k)]
+    if not present:
+        return None
+    names = ", ".join(present)
+    if config.get("use_api_key", False):
+        return f"referee credential: {names} (referee.use_api_key is true; usage is billed to that key)"
+    return f"referee credential: your Claude login ({names} in the environment is ignored; set referee.use_api_key: true to use it)"
 
 
 def _parse_claude_output(stdout: str) -> dict:

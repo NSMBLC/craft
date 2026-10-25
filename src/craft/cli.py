@@ -25,7 +25,7 @@ from .cli_support import decisions_text, explain_text, load_context, status_text
 from .human import confirm, require_human
 from .integrity import make_writable
 from .paths import DEFAULT_CONFIG, PROGRAMME_MARKER, InvestigationPaths, Programme, find_programme_root
-from .referee import build_round1_prompt, build_round2_prompt, run_referee
+from .referee import build_round1_prompt, build_round2_prompt, credential_note, run_referee
 from .state import Acknowledgement, InvestigationState, Phase, ReviewRound, VerdictRef, new_state
 from .util import CraftError, now_iso, read_doc, sha256_file, write_yaml
 
@@ -543,6 +543,9 @@ def _run_review(prog: Programme, inv: InvestigationPaths, state: InvestigationSt
     n = len(rec.rounds) + 1
     cfg = prog.config["referee"]
     backend = os.environ.get("CRAFT_REFEREE_BACKEND") or cfg.get("backend", "claude")
+    note = credential_note(cfg, backend)
+    if note:
+        echo(f"{hid}: {note}")
     if n == 1:
         sys_p, user_p = build_round1_prompt(inv, hid)
         data = _run_checked(cfg, sys_p, user_p, rv.ROUND1_SCHEMA, n, hid, lambda d: rv.check_round1(d))
