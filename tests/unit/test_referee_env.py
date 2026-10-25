@@ -37,11 +37,20 @@ def test_api_key_kept_when_opted_in(captured):
     assert captured["env"]["ANTHROPIC_API_KEY"] == "sk-test"
 
 
-def test_credential_note(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
-    assert referee.credential_note({}, "claude") is None
+def test_credential_note_only_when_billing_a_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    assert "ignored" in referee.credential_note({}, "claude")
+    assert referee.credential_note({}, "claude") is None
     assert "billed" in referee.credential_note({"use_api_key": True}, "claude")
-    assert referee.credential_note({}, "fake") is None
+    assert referee.credential_note({"use_api_key": True}, "fake") is None
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    assert referee.credential_note({"use_api_key": True}, "claude") is None
+
+
+def test_failure_hints_at_ignored_key(monkeypatch):
+    monkeypatch.setattr(referee.shutil, "which", lambda _: "/usr/bin/claude")
+    monkeypatch.setattr(referee.subprocess, "run",
+                        lambda args, **kw: subprocess.CompletedProcess(args, 1, stdout="", stderr="not logged in"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    with pytest.raises(referee.CraftError, match="use_api_key"):
+        referee._claude({}, "sys", "user", {})

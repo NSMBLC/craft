@@ -30,7 +30,7 @@ craft --help
 Requires Python 3.12+ and, for the independent referee, the `claude` CLI on PATH (or set
 `referee.backend: command` in `craft.yaml` to use any other model CLI). The referee uses your
 Claude login: an `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in your environment is ignored
-unless you set `referee.use_api_key: true`, and `craft review` says which credential it used.
+unless you set `referee.use_api_key: true`, in which case `craft review` says it is billing that key.
 
 ## Set up a programme (once per research programme)
 

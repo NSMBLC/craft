@@ -118,17 +118,22 @@ def _claude(config: dict, system_prompt: str, user_prompt: str, schema: dict) ->
     ]
     if config.get("effort"):
         args += ["--effort", str(config["effort"])]
+    strip = not config.get("use_api_key", False)
     # Run from an empty temp dir so no CLAUDE.md or project settings can be discovered.
     with tempfile.TemporaryDirectory(prefix="craft-referee-") as tmp:
         try:
             proc = subprocess.run(
                 args, input=user_prompt, capture_output=True, text=True, cwd=tmp,
-                env=_clean_env(strip_api_keys=not config.get("use_api_key", False)), timeout=int(config.get("timeout_s", 900)),
+                env=_clean_env(strip_api_keys=strip), timeout=int(config.get("timeout_s", 900)),
             )
         except subprocess.TimeoutExpired as e:
             raise CraftError("referee timed out") from e
     if proc.returncode != 0:
-        raise CraftError(f"referee process failed ({proc.returncode}): {proc.stderr.strip()[:800]}")
+        hint = ""
+        if strip and any(os.environ.get(k) for k in API_KEY_VARS):
+            hint = (" (the referee ignored the API key in your environment and used your Claude login; "
+                    "log in with `claude`, or set referee.use_api_key: true in craft.yaml to use the key)")
+        raise CraftError(f"referee process failed ({proc.returncode}): {proc.stderr.strip()[:800]}{hint}")
     return _parse_claude_output(proc.stdout)
 
 
@@ -143,16 +148,13 @@ def _clean_env(strip_api_keys: bool = False) -> dict:
 
 
 def credential_note(config: dict, backend: str) -> str | None:
-    """One line saying which credential the claude backend bills, when the environment holds a key."""
-    if backend != "claude":
+    """A warning when the claude backend will bill an API key; silent when it uses the Claude login."""
+    if backend != "claude" or not config.get("use_api_key", False):
         return None
     present = [k for k in API_KEY_VARS if os.environ.get(k)]
     if not present:
         return None
-    names = ", ".join(present)
-    if config.get("use_api_key", False):
-        return f"referee credential: {names} (referee.use_api_key is true; usage is billed to that key)"
-    return f"referee credential: your Claude login ({names} in the environment is ignored; set referee.use_api_key: true to use it)"
+    return f"referee credential: {', '.join(present)} (referee.use_api_key is true; usage is billed to that key)"
 
 
 def _parse_claude_output(stdout: str) -> dict:
