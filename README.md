@@ -50,7 +50,7 @@ commands, and leaves your own text alone.
 ## Every day
 
 Talk to the agent in plain language: "park that as an idea", "let's test H2 next", "search the
-literature again for X", "plan an experiment at 2M params", "H4 waits on the H8 result", "record the
+literature again for X", "plan an experiment at 2M params", "record the
 price snapshot before anything runs", "that question was answered by exp4", "note on that verdict that
 it only holds in simulation". It writes the files and runs
 `craft recall`, `craft new`, `craft validate`, `craft literature add`, `craft review`,
@@ -69,7 +69,7 @@ autocomplete; the plain `craft ...` forms also work typed as a message or in a t
 
 `/craft-status` is the board: every hypothesis (draft, in review, registered, supported, refuted,
 inconclusive), every experiment (planned, run, done; an exploratory one counts as run once it has
-output), what each is waiting on, the open and answered questions, the recorded input data, and whose
+output), the open and answered questions, the recorded input data, and whose
 turn it is.
 
 The record stays true after the fact, too. A limitation found after a verdict is attached to it

@@ -497,6 +497,9 @@ def _review_step(prog: Programme, inv: InvestigationPaths, state: InvestigationS
     if rec.registered_sha256:
         if sha == rec.registered_sha256:
             raise _NotDue(f"{hid} is registered and unchanged")
+        reg = inv.registered(hid)
+        if reg.exists() and registry.judged_signature(fm) == registry.judged_signature(read_doc(reg)[0]):
+            raise _NotDue(f"{hid} is registered; only provenance or notes changed since, which never touch the registration")
         bearing = registry.evidence_for(inv, state, hid)
         if bearing:
             raise CraftError(

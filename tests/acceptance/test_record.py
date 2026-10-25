@@ -304,17 +304,20 @@ def test_memory_is_not_repeated_within_a_session(programme: Craft):
 
 
 @pytest.mark.checkpoint("9.13")
-def test_sequencing_is_on_the_board(programme: Craft):
+def test_provenance_and_notes_never_touch_a_registration(programme: Craft):
     c = programme
     inv = open_inv(c)
     h = c.root / "investigations" / inv / "hypotheses" / "H1.md"
-    h.write_text(h.read_text().replace("derived_from", "waits_on: [pilot]\nderived_from")
-                 if "derived_from" in h.read_text() else h.read_text().replace("claim:", "waits_on: [pilot]\nclaim:", 1))
-    plan(c, inv, "pilot", "description: calibrate the block length\nexploratory: true")
+    reg_before = json.loads((c.root / "investigations" / inv / "state.json").read_text())["hypotheses"]["H1"]["registered_sha256"]
+    h.write_text(h.read_text().replace("claim:", "origin: agent\nderived_from: experiments/exp0/verdict-H0-C1.md\nclaim:", 1)
+                 + "\nNote: the hardware stage depends on this result.\n")
     b = board(c)
-    assert b["hypotheses"]["H1"]["waits_on"] == ["experiment pilot (planned)"]
-    assert "every registered hypothesis still to test is waiting" in b["next"]["why"]
-    assert "waits on experiment pilot (planned)" in c("status").out
-    c.write(f"investigations/{inv}/experiments/pilot/exploratory/block.json", "{}")
-    b = board(c)
-    assert b["hypotheses"]["H1"]["waits_on"] == [] and b["next"]["who"] == "agent"
+    assert b["hypotheses"]["H1"]["status"] == "registered" and "edited since registration" not in c("status").out
+    script = c.root.parent / "cycle2.json"
+    r = c("review", "--hyp", "H1", "--inv", inv, env={"CRAFT_REFEREE_BACKEND": "fake", "CRAFT_FAKE_REFEREE": str(script)})
+    assert r.code != 0 and "only provenance or notes changed" in r.err
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())["hypotheses"]["H1"]
+    assert st["registered_sha256"] == reg_before and st["cycles"] == []
+    # a judged field does count
+    h.write_text(h.read_text().replace("paired comparison across seeds", "paired t-test across seeds"))
+    assert "edited since registration" in c("status").out

@@ -243,7 +243,7 @@ def awaits(prog: Programme, inv_id: str, verb: str) -> bool:
 
 def decision_target(prog: Programme, inv_id: str | None, verb: str) -> str | None:
     """Which investigation a decision typed without --inv is for: the only open one, or the only one
-    waiting on that decision. Ambiguity is refused with each investigation and what it waits on."""
+    waiting on that decision. Ambiguity is refused with each investigation and whose turn it is there."""
     from . import registry
 
     invs = prog.list_investigations()

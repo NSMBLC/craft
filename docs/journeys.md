@@ -247,9 +247,10 @@ she approved is refused. ✓9.9
 With two investigations open and only one waiting on her, a bare `/craft-approve` reaches that one;
 when both are waiting, the board shows the command with `--inv` before she types it. ✓9.10 A one-line idea
 validates as an idea, not as a failed draft. ✓9.11 Memory relevant to what she is doing is shown once per
-session, not on every prompt, so it still gets read when it matters. ✓9.12 And when the hardware
-hypothesis waits on the circuit check, the board says so, and the next step does not point at work that
-is still waiting. ✓9.13
+session, not on every prompt, so it still gets read when it matters. ✓9.12 And recording where a
+registered hypothesis came from, or adding a note to it, leaves its registration exactly as it was: only
+a change to what review judged (claim, warrant, criteria, outcome rule, rivals, predictions, power) counts
+as an edit. ✓9.13
 
 ---
 
@@ -258,12 +259,12 @@ is still waiting. ✓9.13
 | Failure mode | Checkpoints |
 |---|---|
 | 1. Vague questions | 1.3, 1.4, 1.5, 1.7 |
-| 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5, 9.5 |
+| 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5, 9.5, 9.13 |
 | 3. Late confounds | 3.1 (rival explanations), 4.2 |
 | 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7 |
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2 |
 | 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9 |
-| 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.13 |
+| 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12 |
 | 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |
 | 10. Forced linearity | 8.1, 8.2, 8.3 |

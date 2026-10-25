@@ -2,7 +2,6 @@
 claim: ""                # exactly one falsifiable sentence (an idea can be just this line)
 origin: researcher       # researcher | agent
 derived_from: ""         # what prompted it: a verdict, experiment, source (lit:<key>) or question
-waits_on: []             # what must come first: H8 (an outcome), H8:C1 (judged), an experiment name, or free text
 warrant: ""              # why the planned evidence bears on the claim
 criteria:
   - name: C1

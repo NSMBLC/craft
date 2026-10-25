@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .artifacts.hypothesis import criteria_table, is_idea, validate_hypothesis
-from .paths import HYP_ID_RE, InvestigationPaths, natural_key
+from .paths import InvestigationPaths, natural_key
 from .state import HypothesisRecord, InvestigationState, Phase
 from .util import CraftError, read_doc, sha256_file, split_frontmatter
 
@@ -32,6 +32,15 @@ def criteria_signature(fm: dict) -> str:
     """What pre-registration protects: the criteria table and the outcome rule."""
     crit = sorted((dict(c) for c in criteria_table(fm).values()), key=lambda c: c["name"])
     return json.dumps({"criteria": crit, "outcome_rule": fm.get("outcome_rule")}, sort_keys=True, default=str)
+
+
+# What review judges and registration fixes. Everything else in a hypothesis file (origin, derived_from,
+# dropped, notes in the body) is provenance or commentary: editing it never touches the registration.
+JUDGED_FIELDS = ("claim", "warrant", "criteria", "outcome_rule", "rivals", "predictions", "power")
+
+
+def judged_signature(fm: dict) -> str:
+    return json.dumps({k: fm.get(k) for k in JUDGED_FIELDS}, sort_keys=True, default=str)
 
 
 def parse_iso(ts: str) -> float:
@@ -52,7 +61,7 @@ class HypView:
     registered_fm: dict = field(default_factory=dict)
     criteria_labels: dict[str, str] = field(default_factory=dict)  # registered criterion name -> label
     post_hoc: bool = False         # criteria/outcome rule changed since registration
-    changed_since_registration: bool = False
+    changed_since_registration: bool = False  # a judged field changed (provenance and notes do not count)
     idea: bool = False             # a claim only: parked, valid as an idea
 
     @property
@@ -113,7 +122,7 @@ def hyp_view(inv: InvestigationPaths, state: InvestigationState, hid: str) -> Hy
         v.status = "dropped"
         return v
     if rec.registered_sha256:
-        v.changed_since_registration = sha256_file(path) != rec.registered_sha256
+        v.changed_since_registration = sha256_file(path) != rec.registered_sha256 and judged_signature(fm) != judged_signature(reg_fm)
         v.post_hoc = criteria_signature(fm) != criteria_signature(reg_fm)
         v.status = outcome(v) or "registered"
     elif rec.rounds and rec.open_blocking:
@@ -261,43 +270,6 @@ def _reported_metrics(data: dict) -> set[str]:
     return names
 
 
-# ------------------------------------------------------------------ waiting
-
-def waits_on(fm: dict) -> list[str]:
-    raw = fm.get("waits_on") or []
-    if isinstance(raw, str):
-        raw = [raw]
-    return [str(x).strip() for x in raw if str(x).strip()]
-
-
-def wait_state(inv: InvestigationPaths, state: InvestigationState, ref: str) -> tuple[bool | None, str]:
-    """(satisfied, description) for one `waits_on` entry. A hypothesis is waited on until it has an outcome,
-    a criterion (H8:C1) until it is judged, an experiment until it is done (an exploratory one until it ran).
-    Anything else is free text: shown as written, never satisfied automatically (remove it when it no longer applies)."""
-    hid, _, cname = ref.partition(":")
-    if cname and HYP_ID_RE.match(hid) and (inv.hypothesis(hid).exists() or hid in state.hypotheses):
-        done = any(v.criterion == ref for v in state.verdicts)
-        return done, f"{ref} {'judged' if done else 'not judged yet'}"
-    if HYP_ID_RE.match(ref) and (inv.hypothesis(ref).exists() or ref in state.hypotheses):
-        st = hyp_view(inv, state, ref).status
-        return st in OUTCOMES, f"{ref} ({st})"
-    if ref in inv.experiment_names():
-        e = exp_view(inv, state, ref)
-        ok = e.status == "done" or (e.exploratory and e.status == "run")
-        return ok, f"experiment {ref} ({e.status})"
-    return None, ref
-
-
-def waiting(inv: InvestigationPaths, state: InvestigationState, fm: dict) -> list[str]:
-    """The `waits_on` entries not yet satisfied, described."""
-    out = []
-    for ref in waits_on(fm):
-        ok, desc = wait_state(inv, state, ref)
-        if not ok:
-            out.append(desc)
-    return out
-
-
 # ------------------------------------------------------------------ questions
 
 _BULLET_RE = re.compile(r"^\s*[-*]\s+(?:\[([ xX])\]\s+)?(.+?)\s*$")
@@ -387,14 +359,6 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
     if ready:
         return ("agent", "craft review", f"draft(s) {', '.join(ready)} are complete; request the independent review")
     running = [h for h in hyps if h.status == "registered" and h.untested]
-    blocked = {h.id: waiting(inv, state, h.fm) for h in running}
-    ready_to_run = [h for h in running if not blocked[h.id]]
-    if running and not ready_to_run:
-        what = "; ".join(f"{h.id} waits on {', '.join(blocked[h.id])}" for h in running)
-        return ("researcher", "/craft-close",
-                f"every registered hypothesis still to test is waiting: {what}. The researcher picks what to pursue "
-                "meanwhile (or drops a waits_on that no longer applies), or closes the investigation")
-    running = ready_to_run
     if running:
         what = "; ".join(f"{h.id} ({', '.join(h.untested)})" for h in running)
         return ("agent", "craft verdict <exp> --criterion <H:C> --evidence <file>",
@@ -448,9 +412,6 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         flags = []
         if h.status in OUTCOMES and not h.rule_is_mechanical:
             flags.append(f"label by CRAFT roll-up; registered rule for {h.status}: \"{_short(h.outcome_rule.get(h.status, ''), 50)}\"")
-        w = waiting(inv, state, h.fm) if h.status not in ("dropped", *OUTCOMES) else []
-        if w:
-            flags.append("waits on " + ", ".join(w))
         if h.post_hoc:
             flags.append("criteria changed after registration (post-hoc)")
         elif h.changed_since_registration:
@@ -468,9 +429,7 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         lims = {v.criterion: len(v.limitations) for v in state.verdicts_for(e.name) if v.limitations}
         judged = ", ".join(f"{k} {v}" + (f" ({lims[k]} limitation{'s' if lims[k] > 1 else ''})" if k in lims else "")
                            for k, v in e.verdicts.items())
-        w = waiting(inv, state, e.plan) if e.status in ("planned", "run") else []
-        extra = "; ".join(x for x in [what, judged, "waits on " + ", ".join(w) if w else "",
-                                       f"{len(e.evidence)} evidence file(s)" if e.evidence else "",
+        extra = "; ".join(x for x in [what, judged, f"{len(e.evidence)} evidence file(s)" if e.evidence else "",
                                        f"{len(e.explored)} exploratory file(s)" if e.explored else "",
                                        f"abandoned: {e.abandoned}" if e.abandoned else ""] if x)
         lines.append(f"      {e.name:<14} {e.status:<9} {extra}")
@@ -506,12 +465,10 @@ def public(inv: InvestigationPaths, state: InvestigationState) -> dict:
                 "registered_at": h.rec.registered_at, "criteria": h.criteria_labels, "post_hoc": h.post_hoc,
                 "origin": h.origin, "derived_from": h.derived_from,
                 "label_basis": "rule" if h.rule_is_mechanical else ("roll-up" if h.status in OUTCOMES else None),
-                "waits_on": waiting(inv, state, h.fm) if h.status not in ("dropped", *OUTCOMES) else [],
             } for h in all_hypotheses(inv, state)
         },
         "experiments": {e.name: {"status": e.status, "tests": e.tests, "verdicts": e.verdicts, "evidence": len(e.evidence),
-                                 "exploratory": e.exploratory, "exploratory_files": len(e.explored),
-                                 "waits_on": waiting(inv, state, e.plan) if e.status in ("planned", "run") else []}
+                                 "exploratory": e.exploratory, "exploratory_files": len(e.explored)}
                         for e in all_experiments(inv, state)},
         "questions": questions(inv),
         "answered_questions": [{"question": q.text, "pointer": q.pointer} for q in parked_questions(inv) if q.answered],

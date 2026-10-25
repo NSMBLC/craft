@@ -23,8 +23,6 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
 - `experiments/<name>/plan.md`: `description:` and `tests: [H1:C1, H2]` (or `exploratory: true`),
   plus `origin`/`derived_from`; `abandoned: <reason>` to stop one. Status (planned, run, done) is derived;
   an exploratory experiment counts as run once `exploratory/` has output.
-- `waits_on: [H8, H8:C1, <experiment>, "free text"]` on a hypothesis or plan records what must come
-  first; the board shows it, and the next step skips work that is still waiting.
 - `questions.md`: parked questions, one `- ` bullet each. When one is answered, add
   `answered: <pointer>` (the verdict, experiment or source that answered it) to its bullet.
 - `literature/`: open at all times; new searches are welcome whenever results raise new questions.
@@ -105,8 +103,11 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
   `/craft-correct <entry-id> --note "what is wrong and what is true instead" --evidence <file>`.
 
 ## Changing your mind is allowed, and recorded
-- Editing a registered hypothesis before its data exist: run `craft review --hyp H<n>` to register
-  the new version.
+- Provenance (`origin`, `derived_from`, `dropped`) and notes in the body can change at any time; they
+  never touch a registration. Only the judged fields (claim, warrant, criteria, outcome rule, rivals,
+  predictions, power) count as an edit.
+- Editing a judged field of a registered hypothesis before its data exist: run `craft review --hyp H<n>`
+  to register the new version.
 - "Lower the threshold to 1.4, it's basically there" after the data: you may make the edit if the
   researcher insists, but say plainly what happens: the verdict keeps the pre-registered label
   and adds a POST-HOC line showing what the changed criterion would conclude; memory tags it

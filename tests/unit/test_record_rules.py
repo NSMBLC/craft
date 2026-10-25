@@ -9,7 +9,7 @@ from craft.util import CraftError, read_doc
 
 
 def test_idea_vs_draft(tmp_path):
-    assert is_idea({"claim": "x", "origin": "agent", "waits_on": []})
+    assert is_idea({"claim": "x", "origin": "agent", "derived_from": "lit:kim2024"})
     assert not is_idea({"claim": "x", "warrant": "because"})
     # the template a new investigation starts from is an empty draft, not an idea with content
     from importlib import resources
@@ -28,14 +28,6 @@ def test_questions_answered_forms(tmp_path):
         ("open one?", False, ""), ("checked only?", True, ""),
         ("done?", True, "experiments/e/verdict-H1-C1.md"), ("also done?", True, "lit:kim2024")]
     assert registry.questions(inv) == ["open one?"]
-
-
-def test_waits_on_free_text_is_never_satisfied(tmp_path):
-    inv = InvestigationPaths(tmp_path)
-    inv.hypotheses_dir.mkdir()
-    s = new_state("i", "t")
-    assert registry.wait_state(inv, s, "QPU budget resets in November") == (None, "QPU budget resets in November")
-    assert registry.waiting(inv, s, {"waits_on": "QPU budget resets in November"}) == ["QPU budget resets in November"]
 
 
 def test_deterministic_extraction():
