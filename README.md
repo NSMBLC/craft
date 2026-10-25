@@ -81,6 +81,12 @@ investigations/<id>/           problem.md  questions.md  literature/  env.lock  
 archive/<id>/                  closed investigations, intact; hashes checked by `craft verify`
 ```
 
+## Upgrading from v1
+
+Archived investigations stay readable and `craft verify` checks them. An investigation still in
+progress under v1 (a single `hypothesis.md`, `tasks.md`) is not migrated: finish it with v1, or start
+it again with `craft new`. Files v1 made read-only are made writable again as CRAFT touches them.
+
 ## Development
 
 ```
