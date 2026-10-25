@@ -24,7 +24,7 @@ from .util import CraftError, now_iso, read_doc, sha256_file
 Confirm = Callable[[str], bool]
 
 REOPEN_RETIRED = (
-    "Nothing to reopen: in CRAFT v2 nothing is frozen. problem.md stays editable (a changed version is "
+    "Nothing to reopen: nothing is frozen. problem.md stays editable (a changed version is "
     "re-approved with `/craft-approve`), hypotheses stay editable (changes to criteria after registration are "
     "shown as post-hoc), and a review that hit its round cap starts a new cycle once the hypothesis genuinely "
     "changes (`craft review --hyp <id>`)."

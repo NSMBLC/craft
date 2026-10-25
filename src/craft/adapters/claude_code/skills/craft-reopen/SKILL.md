@@ -1,6 +1,6 @@
 ---
 name: craft-reopen
-description: Retired. Nothing is frozen any more; edit the files instead (a changed problem is re-approved, a capped review restarts once the hypothesis changes).
+description: Not needed. Nothing is frozen; edit the files instead (a changed problem is re-approved, a capped review restarts once the hypothesis changes).
 ---
 
 Usage: `/craft-reopen problem|review [--note "..."] [--inv <id>]`

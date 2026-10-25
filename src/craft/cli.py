@@ -33,7 +33,7 @@ app = typer.Typer(help="CRAFT: disciplined computational research inside a GenAI
                   add_completion=False)
 lit_app = typer.Typer(help="Literature map: sources read in full vs consulted-and-rejected (Journey 2). Open at any time.", no_args_is_help=True)
 review_app = typer.Typer(help="Independent review (Journey 4). `craft review` reviews every hypothesis that is ready.", invoke_without_command=True)
-reopen_app = typer.Typer(help="Retired: nothing is frozen in CRAFT v2, so there is nothing to reopen.", no_args_is_help=True)
+reopen_app = typer.Typer(help="Not needed: nothing is frozen, so there is nothing to reopen.", no_args_is_help=True)
 app.add_typer(lit_app, name="literature")
 app.add_typer(lit_app, name="lit", hidden=True)
 app.add_typer(review_app, name="review")
@@ -969,13 +969,13 @@ def close(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"
 
 @reopen_app.command("problem")
 def reopen_problem(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note")) -> None:
-    """Retired: problem.md stays editable after approval; the researcher re-approves a changed version."""
+    """Not needed: problem.md stays editable after approval; the researcher re-approves a changed version."""
     echo(decisions.REOPEN_RETIRED)
 
 
 @reopen_app.command("review")
 def reopen_review(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note")) -> None:
-    """Retired: after a capped review, change the hypothesis and `craft review --hyp <id>` starts a new cycle."""
+    """Not needed: after a capped review, change the hypothesis and `craft review --hyp <id>` starts a new cycle."""
     echo(decisions.REOPEN_RETIRED)
 
 

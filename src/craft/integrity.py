@@ -15,7 +15,7 @@ from .util import sha256_file
 
 
 def make_writable(path: Path) -> None:
-    """Undo the read-only mode CRAFT v1 used to set, so `craft` itself can rewrite the file."""
+    """Undo the read-only mode an earlier CRAFT format set, so `craft` itself can rewrite the file."""
     if path.exists() and not os.access(path, os.W_OK):
         path.chmod(0o644)
 

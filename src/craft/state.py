@@ -41,7 +41,7 @@ class Phase(str, Enum):
 
 ORDER = [Phase.FRAMING, Phase.OPEN, Phase.CLOSING, Phase.CLOSED]
 
-# CRAFT v1 phases, so archived v1 investigations still load (for decisions, recall, explain).
+# Phases of the earlier linear format, so investigations archived in it still load (for decisions, recall, explain).
 LEGACY_PHASES = {"designing": "open", "responding": "open", "frozen": "open", "executing": "open"}
 
 

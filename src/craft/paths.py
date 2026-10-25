@@ -145,7 +145,7 @@ class InvestigationPaths:
 
     @property
     def legacy_hypothesis(self) -> Path:
-        """CRAFT v1 kept a single hypothesis here; v2 investigations never have it."""
+        """The earlier format kept a single hypothesis here; current investigations never have it."""
         return self.root / "hypothesis.md"
 
     @property

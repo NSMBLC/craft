@@ -16,8 +16,8 @@ def load_context(prog: Programme, inv_id: str | None) -> tuple[InvestigationPath
     inv = InvestigationPaths(prog.investigation_dir(inv_id))
     if inv.legacy_hypothesis.exists() and not inv.hypotheses_dir.exists():
         raise CraftError(
-            f"investigation {inv_id} was created with CRAFT v1 (a single frozen hypothesis.md). CRAFT v2 does not "
-            "migrate in-flight investigations: finish it with CRAFT v1, or start it again with `craft new`."
+            f"investigation {inv_id} uses the earlier single-hypothesis format (hypothesis.md), which is not "
+            "migrated: start it again with `craft new`."
         )
     return inv, InvestigationState.load(inv.root)
 
@@ -159,7 +159,7 @@ def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
         ok = p.exists() and sha256_file(p) == e["sha256"]
         broken += 0 if ok else 1
         out.append(f"  evidence {e['path']} (sha256 {e['sha256'][:12]}): {'resolves' if ok else 'BROKEN'}")
-    hyp_rel = lin.get("hypothesis_file") or f"archive/{rec['investigation']}/hypothesis.md"  # v1 archives
+    hyp_rel = lin.get("hypothesis_file") or f"archive/{rec['investigation']}/hypothesis.md"  # archives in the earlier format
     hyp = prog.root / hyp_rel
     ok = hyp.exists() and (lin.get("hypothesis_sha256") is None or sha256_file(hyp) == lin["hypothesis_sha256"])
     broken += 0 if ok else 1

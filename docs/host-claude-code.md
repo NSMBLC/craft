@@ -18,7 +18,7 @@ Claude Code 2.1.278 on macOS, by driving a real `claude -p` process against a de
 
 | Behaviour | Result |
 |---|---|
-| Write tool on a gated file (v1: `tasks.md` before review; v2: evidence for an unregistered hypothesis) | Blocked. Model received: `PreToolUse:Write hook error: CRAFT refused: … [checkpoint 5.1]`. File absent afterward. |
+| Write tool on a gated file (evidence for an unregistered hypothesis; earlier, `tasks.md` before review) | Blocked. Model received: `PreToolUse:Write hook error: CRAFT refused: … [checkpoint 5.1]`. File absent afterward. |
 | Bash `echo … > <gated file>` | Blocked by the Bash screen with the same reason, prefixed `(shell)`. |
 | Bash `craft approve problem` | Blocked: "that `craft` command is a researcher decision …". |
 | Write tool on `memory/findings.jsonl` | Blocked by the permission deny rule before the hook ran ("File is in a directory that is denied by your permission settings"). |
@@ -46,7 +46,7 @@ temporarily removed, so they demonstrate the mechanical layer alone.
 Because `!` inherits the agent environment, the in-session channel for researcher decisions is
 the prompt itself. Claude Code passes every typed prompt to the `UserPromptSubmit` hook before
 the model sees it. When the prompt is exactly a decision command (`/craft-approve`, `/craft-reject --note`,
-`/craft-close`, `/craft-resolve --note` (`/craft-reopen` is retired and only explains why), or the same with `craft ` in
+`/craft-close`, `/craft-resolve --note` (`/craft-reopen` is not needed and only explains why), or the same with `craft ` in
 place of `/craft-`, each with optional `--inv/...`), `craft hook user-prompt-submit` executes it and injects a
 `<craft-decision>` block telling the model the outcome and not to run the command itself.
 
@@ -68,6 +68,6 @@ autocompletes; verified live that the hook receives the raw `/craft-...` text be
 `craft approve|reject|close|reopen|resolve`, `craft hook`, `CRAFT_ALLOW_NON_TTY`, and any
 mutating command (`>`, `>>`, `tee`, `mv`, `cp`, `rm`, `chmod`, `sed -i`, `truncate`, …) whose
 path tokens resolve to a gated file. This is heuristic; the backstop is recorded hashes
-(`craft verify`, run at SessionStart/Stop and before closure). CRAFT v2 no longer changes file
-permissions: git does not preserve them, so a fresh clone made every v1 "frozen" file writable and
-tripped the integrity check.
+(`craft verify`, run at SessionStart/Stop and before closure). CRAFT does not change file
+permissions: git does not preserve them, so an earlier design that froze files read-only had every
+"frozen" file come back writable in a fresh clone, tripping the integrity check.
