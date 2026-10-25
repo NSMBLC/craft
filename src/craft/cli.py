@@ -16,12 +16,12 @@ import typer
 from . import decisions, envlock, hooks, registry
 from . import memory as mem
 from .artifacts import review as rv
-from .artifacts.hypothesis import criteria_table, validate_hypothesis
+from .artifacts.hypothesis import DESIGN_FIELDS, criteria_table, is_idea, validate_hypothesis
 from .artifacts.literature import add_source, lint_priority_claims, load_sources, validate_literature
 from .artifacts.plan import validate_plan
 from .artifacts.problem import kill_criteria, validate_problem
-from .artifacts.verdict import compare, extract, label_for, load_evidence, render_verdict
-from .cli_support import decisions_text, explain_text, load_context, status_text, verify_all
+from .artifacts.verdict import compare, extract, label_for, load_evidence, missing_fields, render_verdict
+from .cli_support import decision_cmd, decision_target, decisions_text, explain_text, load_context, status_text, verify_all
 from .human import confirm, require_human
 from .integrity import make_writable
 from .paths import DEFAULT_CONFIG, PROGRAMME_MARKER, InvestigationPaths, Programme, find_programme_root
@@ -264,14 +264,24 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
 
 @app.command()
 def validate(artifact: str = typer.Argument("all", help="problem | literature | hypotheses | <hypothesis id, e.g. H2> | plans | all"),
+             full: bool = typer.Option(False, "--full", help="For a parked idea: list everything a full draft still needs."),
              inv_id: Optional[str] = INV_OPT) -> None:
     """Check artifacts against their required shape. Reports; never rewrites.
 
-    `all` lists incomplete hypothesis drafts as ideas without failing; `hypotheses` or an id fails on them.
+    A parked idea (a claim only) is valid as an idea; `--full` lists what a draft needs. `all` lists
+    incomplete drafts without failing; `hypotheses` or an id fails on them.
     """
     prog, inv, state = _ctx(inv_id)
-    results, notes = [], []
+    results, notes, ideas = [], [], []
     hyp_ids = inv.hypothesis_ids()
+
+    def hyp_result(h: str, strict: bool) -> None:
+        if not full and is_idea(read_doc(inv.hypothesis(h))[0]):
+            ideas.append(h)
+            return
+        hv = validate_hypothesis(inv.hypothesis(h))
+        (results if hv.ok or strict else notes).append(hv)
+
     if artifact in ("problem", "all"):
         results.append(validate_problem(inv.problem, int(prog.config["limits"]["problem_max_words"])))
     if artifact in ("literature", "all"):
@@ -280,16 +290,16 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     if artifact in ("hypotheses", "hypothesis"):
         if not hyp_ids:
             raise CraftError("no hypotheses yet: write hypotheses/H1.md")
-        results += [validate_hypothesis(inv.hypothesis(h)) for h in hyp_ids]
+        for h in hyp_ids:
+            hyp_result(h, strict=True)
     elif artifact in hyp_ids:
-        results.append(validate_hypothesis(inv.hypothesis(artifact)))
+        hyp_result(artifact, strict=True)
     elif artifact == "all":
         for h in hyp_ids:
-            hv = validate_hypothesis(inv.hypothesis(h))
-            (results if hv.ok else notes).append(hv)
+            hyp_result(h, strict=False)
     if artifact in ("plans", "all"):
         results += [validate_plan(inv, state, e) for e in inv.experiment_names() if inv.experiment_plan(e).exists()]
-    if not results and not notes:
+    if not results and not notes and not ideas:
         if artifact in ("problem", "literature", "hypotheses", "hypothesis", "plans", "all"):
             echo("Nothing to validate yet.")
             return
@@ -298,8 +308,11 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     for r in results:
         echo(r.render())
         ok = ok and r.ok
+    for h in ideas:
+        echo(f"hypotheses/{h}.md: a parked idea (claim only), valid as an idea. To review it, flesh it out into a full "
+             f"draft ({', '.join(DESIGN_FIELDS)}); `craft validate {h} --full` lists each missing element.")
     for r in notes:
-        echo(f"{r.artifact}: incomplete draft (an idea until it is filled in; `craft validate {Path(r.artifact).stem}` for details)")
+        echo(f"{r.artifact}: incomplete draft (`craft validate {Path(r.artifact).stem}` for details)")
     if artifact == "all":
         docs = [inv.problem, inv.lit_map] + [inv.hypothesis(h) for h in hyp_ids]
         for doc in docs:
@@ -370,10 +383,11 @@ def approve(what: Optional[str] = typer.Argument(None, help="problem | package (
         raise CraftError("`craft approve [problem|package]`; hypotheses are registered by review, not approval")
 
     def run(prog):
-        subject = what or decisions.pending_subject(prog, inv_id, "approve")
+        target = decision_target(prog, inv_id, "approve")
+        subject = what or decisions.pending_subject(prog, target, "approve")
         if subject == "problem":
-            return decisions.approve_problem(prog, inv_id, note, _tty_confirm, "terminal")
-        return decisions.env_approve(prog, inv_id, lock, _tty_confirm, "terminal")
+            return decisions.approve_problem(prog, target, note, _tty_confirm, "terminal")
+        return decisions.env_approve(prog, target, lock, _tty_confirm, "terminal")
 
     echo(_decide(run))
 
@@ -387,8 +401,9 @@ def reject(what: Optional[str] = typer.Argument(None, help="package"), note: str
     require_human("reject")
 
     def run(prog):
-        decisions.pending_subject(prog, inv_id, "reject")
-        return decisions.env_reject(prog, inv_id, note, "terminal")
+        target = decision_target(prog, inv_id, "reject")
+        decisions.pending_subject(prog, target, "reject")
+        return decisions.env_reject(prog, target, note, "terminal")
 
     echo(_decide(run))
 
@@ -473,6 +488,8 @@ def _review_step(prog: Programme, inv: InvestigationPaths, state: InvestigationS
     limit = int(prog.config["limits"]["review_rounds"])
 
     def complete() -> None:
+        if is_idea(fm):
+            raise CraftError(f"{hid} is a parked idea (claim only); it is reviewed once it is fleshed out into a full draft")
         v = validate_hypothesis(path)
         if not v.ok:
             raise CraftError(f"{hid} is not complete enough to review:\n" + v.render())
@@ -480,12 +497,14 @@ def _review_step(prog: Programme, inv: InvestigationPaths, state: InvestigationS
     if rec.registered_sha256:
         if sha == rec.registered_sha256:
             raise _NotDue(f"{hid} is registered and unchanged")
-        if registry.evidence_exists_for(inv, state, hid):
+        bearing = registry.evidence_for(inv, state, hid)
+        if bearing:
             raise CraftError(
-                f"{hid} changed after evidence for it was produced, so it cannot be registered again: criteria fixed "
-                "after the data are not a pre-registration. Its verdicts stay computed against the registered version, "
-                "and any criteria change is shown as post-hoc. To test the new version confirmatorily, write it as a "
-                f"new hypothesis (derived_from: {hid}) and review that."
+                f"{hid} changed after evidence bearing on its criteria was produced ({', '.join(bearing[:5])}), so it cannot "
+                "be registered again: criteria fixed after the data are not a pre-registration. Its verdicts stay computed "
+                "against the registered version, and any criteria change is shown as post-hoc. To test the new version "
+                f"confirmatorily, write it as a new hypothesis (derived_from: {hid}) and review that. (Evidence that reports "
+                f"only other metrics, such as a kill-criterion pilot, does not block re-registration.)"
             )
         complete()
         return "new-cycle"
@@ -674,7 +693,7 @@ def review_show(inv_id: Optional[str] = INV_OPT) -> None:
 @app.command()
 def lock(file: Path = typer.Argument(..., help="Lock file to record (uv.lock, requirements.txt, environment.yml)."),
          inv_id: Optional[str] = INV_OPT) -> None:
-    """Record the locked environment before the first verdict (replaces the empty initial lock)."""
+    """Record the resolved environment lock before the first verdict (a new version; approved packages must be in it)."""
     prog, inv, state = _ctx(inv_id)
     if state.verdicts:
         raise CraftError("verdicts have been filed against the current environment; changes go through `craft propose package`")
@@ -692,9 +711,60 @@ def propose(what: str = typer.Argument(..., help="package"), name: str = typer.A
     prog, inv, state = _ctx(inv_id)
     envlock.propose(inv, state, name, reason)
     state.save(inv.root)
+    approve_cmd = decision_cmd(prog, state.id, "/craft-approve")
     echo(f"Proposed adding '{name}' (env v{state.env.version} -> v{state.env.version + 1}). "
-         "Verdicts are halted: no verdicts can be filed until the researcher types `/craft-approve` "
-         "(or `/craft-reject --note ...`). End your message with that command on its own line and wait.")
+         f"Verdicts are halted: no verdicts can be filed until the researcher types `{approve_cmd}` "
+         f"(or `{decision_cmd(prog, state.id, '/craft-reject')} --note ...`). End your message with that command on its own line and wait.")
+
+
+data_app = typer.Typer(help="Input data that criteria depend on, recorded by hash and checked by `craft verify`.", no_args_is_help=True)
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("add")
+def data_add(path: Path = typer.Argument(..., help="A data file or directory inside the programme."),
+             data_id: str = typer.Option(..., "--id", help="The data_id evidence files will name, e.g. prices-2026-09-snapshot."),
+             note: str = typer.Option("", "--note", help="What it is and where it came from."),
+             inv_id: Optional[str] = INV_OPT) -> None:
+    """Record an input snapshot by hash. A change to it is detected and held for the researcher."""
+    from . import data as data_mod
+
+    prog, inv, state = _ctx(inv_id)
+    state.require_untainted("record data")
+    state.require_phase(Phase.FRAMING, Phase.OPEN, Phase.CLOSING, action="record data")
+    rec, new = data_mod.add(prog, state, path, data_id, note)
+    state.save(inv.root)
+    what = f"{len(rec['files'])} file(s)" if rec["kind"] == "dir" else "1 file"
+    echo(f"Data '{data_id}' {'recorded' if new else 'already recorded, unchanged'}: {rec['path']} ({what}, sha256 "
+         f"{rec['sha256'][:12]}). Evidence naming data_id '{data_id}' is checked against it; `craft verify` detects any change.")
+
+
+@data_app.command("list")
+def data_list(inv_id: Optional[str] = INV_OPT) -> None:
+    """The recorded input data of an investigation."""
+    prog, inv, state = _ctx(inv_id)
+    if not state.data:
+        echo("No input data recorded yet (`craft data add <path> --id <data_id>`).")
+    for did, rec in state.data.items():
+        echo(f"{did}: {rec['path']} ({rec['kind']}, {len(rec['files'])} file(s), sha256 {rec['sha256'][:12]}, {rec['when'][:10]})"
+             + (f" — {rec['note']}" if rec.get("note") else ""))
+
+
+def _check_data(prog: Programme, state: InvestigationState, data_ids: list) -> list[dict]:
+    """Full check of every recorded data id the evidence names; their hashes go into the verdict."""
+    from . import data as data_mod
+
+    out = []
+    for did in data_ids:
+        rec = state.data.get(str(did))
+        if rec is None:
+            continue
+        p = data_mod.check(prog, str(did), rec, full=True)
+        if p:
+            raise CraftError(f"{p}. A verdict cannot cite data that differs from what was recorded; the researcher "
+                             "reviews what happened (`craft verify`), and new data is recorded under a new id.")
+        out.append({"id": str(did), "path": rec["path"], "sha256": rec["sha256"]})
+    return out
 
 
 # ------------------------------------------------------------------ verdict
@@ -746,16 +816,19 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
         )
     links = _exploratory_links(inv, experiment, exploratory)
     data = load_evidence(ev)
-    m = extract(data, metric or crit["metric"])
+    det = crit.get("deterministic") or None
+    _require_complete(inv, ev, data, metric or crit["metric"], seed, data_id, det)
+    m = extract(data, metric or crit["metric"], det)
     op, thr = crit["op"], float(crit["threshold"])
     label, rationale = label_for(m, op, thr)
     seeds, data_ids = _repro(m, seed, data_id)
+    data_records = _check_data(prog, state, data_ids)
     post_hoc = _post_hoc(hv, cname, crit, data, metric)
 
     killed = None
     for k in kill_criteria(pfm):
         if k["metric"] in _metric_names(data):
-            km = extract(data, k["metric"])
+            km = extract(data, k["metric"], k.get("deterministic") or None)
             if compare(k["op"], km.point, float(k["value"])):
                 killed = (k, km)
                 break
@@ -764,12 +837,12 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     vfm = {
         "experiment": experiment, "hypothesis": hid, "criterion": key, "label": label, "rationale": rationale,
         "metric": m.metric, "op": op, "threshold": thr,
-        "observed": m.point, "ci95": [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
-        "uncertainty_source": m.source,
+        "observed": m.point, "ci95": None if m.deterministic else [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
+        "uncertainty_source": m.source, "deterministic": m.deterministic,
         "evidence": [{"path": ev_rel, "sha256": sha256_file(ev)}],
         "exploratory_links": links,
         "exploratory_note": "linked for transparency; none of these numbers are evidence for any criterion" if links else None,
-        "seeds": seeds, "data_ids": data_ids,
+        "seeds": seeds, "data_ids": data_ids, "data_records": data_records,
         "env_version": state.env.version, "env_lock_sha256": state.env.lock_sha256,
         "hypothesis_registered_sha256": hv.rec.registered_sha256, "hypothesis_registered_at": hv.rec.registered_at,
         "problem_sha256": state.problem_sha256,
@@ -779,10 +852,11 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     }
     body = [f"# Verdict — {experiment} / {key}: **{label.upper()}**", "",
             f"Criterion {key} (as registered {hv.rec.registered_at}): {m.metric} {op} {thr} under: {crit.get('conditions')}",
-            f"Observed: {m.point:.6g} (95% CI [{m.ci_low:.6g}, {m.ci_high:.6g}], n={m.n}) — {rationale}", "",
+            f"Observed: {_observed(m)} — {rationale}", "",
             "Evidence: " + ", ".join(f"`{e['path']}` (sha256 {e['sha256'][:12]})" for e in vfm["evidence"]),
             f"Reproducibility: seeds {seeds}; data {data_ids}; env v{state.env.version} ({(state.env.lock_sha256 or '')[:12]}); "
             f"hypothesis {hid} as registered ({hv.rec.registered_sha256[:12]})"]
+    body += _data_lines(state, data_ids, data_records)
     if post_hoc:
         body += ["", "POST-HOC: " + post_hoc["note"]]
     if links:
@@ -808,9 +882,55 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     state.save(inv.root)
     hv = registry.hyp_view(inv, state, hid)
     left = f"; still untested: {', '.join(hv.untested)}" if hv.untested else ""
-    echo(f"{hid} is now {hv.status}{left}. Propose up to three follow-ups grounded in this result (a question in "
+    basis = f" ({hv.label_basis()})" if hv.label_basis() else ""
+    echo(f"{hid} is now {hv.status}{basis}{left}. Propose up to three follow-ups grounded in this result (a question in "
          "questions.md, a hypothesis in hypotheses/, or an experiment plan) with "
          f"`derived_from: {rel_v}`, and write the ones the researcher accepts.")
+
+
+@app.command()
+def limitation(experiment: str, criterion: str = typer.Option(..., "--criterion", help="The judged criterion, e.g. H1:C1."),
+               text: str = typer.Option(..., "--text", help="What the verdict does not show, in one or two sentences."),
+               source: str = typer.Option(..., "--source", help="Where it was found: a file in the investigation, lit:<key>, or a note."),
+               inv_id: Optional[str] = INV_OPT) -> None:
+    """Attach a limitation found after a verdict. The verdict and its label never change; the limitation
+    travels with it to the board, closure, memory, recall and explain."""
+    prog, inv, state = _ctx(inv_id)
+    state.require_untainted("record a limitation")
+    state.require_phase(Phase.OPEN, Phase.CLOSING, action="record a limitation")
+    key = criterion
+    if ":" not in key and not any(v.criterion == key and v.experiment == experiment for v in state.verdicts):
+        pfm, _ = read_doc(inv.problem)
+        key = ":".join(_resolve_criterion(inv, state, criterion, {k["id"]: k for k in kill_criteria(pfm)}))
+    ref = next((v for v in state.verdicts if v.experiment == experiment and v.criterion == key), None)
+    if ref is None:
+        judged = ", ".join(v.criterion for v in state.verdicts_for(experiment)) or "none"
+        raise CraftError(f"no verdict for {key} in experiment {experiment} (judged there: {judged})")
+    if len(text.split()) < 4:
+        raise CraftError("--text is too thin; say concretely what the verdict does not show")
+    src_path = source.split("#", 1)[0].strip()
+    if ("/" in src_path or src_path.endswith((".md", ".json", ".yaml", ".py"))) and not src_path.startswith("lit:"):
+        if not (inv.root / src_path).exists() and not (prog.root / src_path).exists():
+            raise CraftError(f"--source {source}: no such file in the investigation or programme")
+    entry = {"text": text, "source": source, "when": now_iso()}
+    ref.limitations.append(entry)
+    lines = [f"# Limitations — {experiment} / {key}", "",
+             f"The verdict ({ref.file}) and its label ({ref.label}) are unchanged. These were found afterwards:", ""]
+    lines += [f"- {e['when']}: {e['text']} (source: {e['source']})" for e in ref.limitations]
+    _write_record(inv, state, inv.verdict_limitations(experiment, key), "\n".join(lines) + "\n")
+    state.save(inv.root)
+    echo(f"Limitation recorded on {key} ({experiment}); its label stays {ref.label.upper()}. It is shown with the verdict "
+         f"on the board, at closure, in memory, recall and `craft explain`. ({inv.rel(inv.verdict_limitations(experiment, key))})")
+
+
+@app.command()
+def correct(entry_id: str = typer.Argument(..., help="Memory entry id, e.g. Q-0004 or F-0002."),
+            note: str = typer.Option(..., "--note", help="What is wrong with the entry and what is true instead."),
+            evidence: Optional[Path] = typer.Option(None, "--evidence", help="A file in the programme that shows it."),
+            ) -> None:
+    """RESEARCHER ONLY. Record a correction to a memory entry; the entry stays as written, and the correction is shown wherever it is."""
+    require_human("correct")
+    echo(_decide(lambda prog: decisions.correct(prog, entry_id, note, evidence, _tty_confirm, "terminal")))
 
 
 def _resolve_criterion(inv: InvestigationPaths, state: InvestigationState, ref: str, kills: dict) -> tuple[str, str]:
@@ -844,7 +964,8 @@ def _post_hoc(hv: registry.HypView, cname: str, reg: dict, data: dict, metric: O
                                           f"{cname} itself is unchanged."}
     out = {"changed": True, "now": {k: cur.get(k) for k in keys}}
     try:
-        m2 = extract(data, metric if metric and cur.get("metric") == reg.get("metric") else cur["metric"])
+        m2 = extract(data, metric if metric and cur.get("metric") == reg.get("metric") else cur["metric"],
+                     cur.get("deterministic") or None)
         label2, _ = label_for(m2, cur["op"], float(cur["threshold"]))
         out["label_under_changed_criterion"] = label2
         tail = f" Under the changed criterion this would be {label2.upper()}."
@@ -867,13 +988,31 @@ def _exploratory_links(inv: InvestigationPaths, experiment: str, exploratory: li
     return links
 
 
+def _data_lines(state: InvestigationState, data_ids: list, data_records: list[dict]) -> list[str]:
+    lines = [f"Data {r['id']}: {r['path']} as recorded (sha256 {r['sha256'][:12]})" for r in data_records]
+    if state.data:
+        unrecorded = [str(d) for d in data_ids if str(d) not in state.data]
+        if unrecorded:
+            lines.append(f"Data not recorded with `craft data add`: {', '.join(unrecorded)} (its contents are not integrity-checked)")
+    return lines
+
+
+def _require_complete(inv: InvestigationPaths, ev: Path, data: dict, metric: str, seed: list[str], data_id: list[str],
+                      deterministic: str | None) -> None:
+    problems = missing_fields(data, metric, seed, data_id, deterministic)
+    if problems:
+        raise CraftError(f"{inv.rel(ev)} cannot back a verdict yet. Everything missing:\n  - " + "\n  - ".join(problems))
+
+
+def _observed(m) -> str:
+    if m.deterministic:
+        return f"{m.point:.6g} (deterministic: {m.deterministic}; no interval)"
+    return f"{m.point:.6g} (95% CI [{m.ci_low:.6g}, {m.ci_high:.6g}], n={m.n})"
+
+
 def _repro(m, seed: list[str], data_id: list[str]) -> tuple[list, list]:
     seeds = seed or (m.seeds if m.seeds else [])
     data_ids = data_id or ([m.data_id] if m.data_id else [])
-    if not seeds:
-        raise CraftError("no seeds recorded: put `seeds` in the evidence file or pass --seed (reproducibility record)")
-    if not data_ids:
-        raise CraftError("no data identifier: put `data_id` in the evidence file or pass --data-id")
     return seeds, data_ids
 
 
@@ -908,28 +1047,32 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
     """Evaluate one kill criterion from problem.md against an evidence file (Journey 6.5)."""
     ev = _resolve_evidence(inv, experiment, evidence)
     data = load_evidence(ev)
-    m = extract(data, metric or k["metric"])
+    det = k.get("deterministic") or None
+    _require_complete(inv, ev, data, metric or k["metric"], seed, data_id, det)
+    m = extract(data, metric or k["metric"], det)
     op, value = k["op"], float(k["value"])
     met = compare(op, m.point, value)
     label = "kill-met" if met else "kill-not-met"
     seeds, data_ids = _repro(m, seed, data_id)
+    data_records = _check_data(prog, state, data_ids)
     ev_rel = inv.rel(ev)
     vfm = {
         "experiment": experiment, "criterion": k["id"], "kind": "kill-criterion", "label": label,
         "condition": k.get("condition"), "metric": m.metric, "op": op, "value": value,
-        "observed": m.point, "ci95": [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
-        "uncertainty_source": m.source,
+        "observed": m.point, "ci95": None if m.deterministic else [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
+        "uncertainty_source": m.source, "deterministic": m.deterministic,
         "evidence": [{"path": ev_rel, "sha256": sha256_file(ev)}],
-        "seeds": seeds, "data_ids": data_ids,
+        "seeds": seeds, "data_ids": data_ids, "data_records": data_records,
         "env_version": state.env.version, "env_lock_sha256": state.env.lock_sha256,
         "problem_sha256": state.problem_sha256,
         "created": now_iso(),
     }
     body = [f"# Kill check — {experiment} / {k['id']}: **{label.upper()}**", "",
             f"Kill criterion {k['id']}: {k.get('condition')}  ({m.metric} {op} {value})",
-            f"Observed: {m.point:.6g} (95% CI [{m.ci_low:.6g}, {m.ci_high:.6g}], n={m.n})", "",
+            f"Observed: {_observed(m)}", "",
             "Evidence: " + ", ".join(f"`{e['path']}` (sha256 {e['sha256'][:12]})" for e in vfm["evidence"]),
             f"Reproducibility: seeds {seeds}; data {data_ids}; env v{state.env.version} ({(state.env.lock_sha256 or '')[:12]})"]
+    body += _data_lines(state, data_ids, data_records)
     vpath = inv.verdict(experiment, k["id"])
     _write_record(inv, state, vpath, render_verdict(vfm, body))
     state.record(ev_rel, vfm["evidence"][0]["sha256"])
@@ -962,7 +1105,7 @@ def close(inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"
           incomplete: bool = typer.Option(False, "--incomplete", hidden=True, help="Accepted for compatibility; closing is always allowed.")) -> None:
     """RESEARCHER ONLY. Close the investigation whenever you choose: outcomes and open threads go to memory, files to the archive."""
     require_human("close")
-    echo(_decide(lambda prog: decisions.close(prog, inv_id, note, _tty_confirm, "terminal")))
+    echo(_decide(lambda prog: decisions.close(prog, decision_target(prog, inv_id, "close"), note, _tty_confirm, "terminal")))
 
 
 # ------------------------------------------------------------------ reopen (retired) / resolve (human)
@@ -984,7 +1127,8 @@ def resolve(inv_id: Optional[str] = INV_OPT, note: str = typer.Option(..., "--no
             accept_current: bool = typer.Option(False, "--accept-current", help="Re-record hashes of the current record files (logged).")) -> None:
     """RESEARCHER ONLY. Clear an integrity hold after reviewing what happened."""
     require_human("resolve")
-    echo(_decide(lambda prog: decisions.untaint(prog, inv_id, note, accept_current, _tty_confirm, "terminal")))
+    echo(_decide(lambda prog: decisions.untaint(prog, decision_target(prog, inv_id, "resolve"), note, accept_current,
+                                                _tty_confirm, "terminal")))
 
 
 # ------------------------------------------------------------------ status / explain / decisions / verify
@@ -1020,9 +1164,9 @@ def decisions_cmd(inv_id: Optional[str] = INV_OPT) -> None:
 
 @app.command()
 def verify() -> None:
-    """Integrity of every recorded file: reviews, registrations, verdicts, cited evidence, env.lock, memory, archive."""
+    """Integrity of every recorded file: reviews, registrations, verdicts, cited evidence, env.lock, input data, memory, archive."""
     prog = _prog()
-    problems = verify_all(prog)
+    problems = verify_all(prog, full=True)
     if problems:
         for p in problems:
             echo(f"- {p}")

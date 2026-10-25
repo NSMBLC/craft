@@ -15,9 +15,13 @@ from .paths import ARCHIVE_DIR, INVESTIGATIONS_DIR, MEMORY_DIR, PROGRAMME_MARKER
 from .state import InvestigationState, Phase
 from .util import CraftError
 
-HUMAN_ONLY = ("approve", "reject", "close", "reopen", "resolve")  # `craft <verb> ...`
+HUMAN_ONLY = ("approve", "reject", "close", "reopen", "resolve", "correct")  # `craft <verb> ...`
+# The verb must be the subcommand (`craft approve`, `uv run craft close`, `python -m craft.cli resolve`),
+# not a word in a quoted reason or limitation text. The CLI also refuses these inside an agent tool
+# call (human.require_human), so this screen is one layer of three.
 HUMAN_ONLY_RE = re.compile(
-    r"\bcraft\b[^;&|\n]*?\b(approve|reject|close|reopen|resolve|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"\bcraft(?:\.cli)?['\"]?\s+['\"]?(approve|reject|close|reopen|resolve|correct|hook)\b"
+    r"|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
     r"|\buser-prompt-submit\b|\bhooks\.py\b|\bcraft\.hooks\b|\bcraft\.decisions\b|\bdecisions\.py\b"
 )
 # Not file writes: `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null`, an email in angle
@@ -78,6 +82,14 @@ def decide_write(prog: Programme, target: Path) -> Decision:
         )
     if head == ARCHIVE_DIR:
         return Decision.deny(f"{rel}: archived investigations are the record of what happened; they are never edited.")
+    from . import data as data_mod
+
+    held = data_mod.covering(prog, rel.as_posix())
+    if held:
+        return Decision.deny(
+            f"{rel} is recorded input data ('{held[1]}' in {held[0]}); criteria depend on it, so it is never changed in "
+            "place. Write a new snapshot elsewhere and record it under a new id (`craft data add <path> --id <new-id>`)."
+        )
     if head != INVESTIGATIONS_DIR:
         return Decision.ok()
     if len(parts) < 2:
@@ -223,7 +235,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     """
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
-            "that `craft` command is a researcher decision (approve / reject / close / reopen / resolve). "
+            "that `craft` command is a researcher decision (approve / reject / close / reopen / resolve / correct). "
             "Ask the researcher to type it as a slash command (e.g. `/craft-approve`); "
             "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",

@@ -46,7 +46,7 @@ temporarily removed, so they demonstrate the mechanical layer alone.
 Because `!` inherits the agent environment, the in-session channel for researcher decisions is
 the prompt itself. Claude Code passes every typed prompt to the `UserPromptSubmit` hook before
 the model sees it. When the prompt is exactly a decision command (`/craft-approve`, `/craft-reject --note`,
-`/craft-close`, `/craft-resolve --note` (`/craft-reopen` is not needed and only explains why), or the same with `craft ` in
+`/craft-close`, `/craft-resolve --note`, `/craft-correct <id> --note` (`/craft-reopen` is not needed and only explains why), or the same with `craft ` in
 place of `/craft-`, each with optional `--inv/...`), `craft hook user-prompt-submit` executes it and injects a
 `<craft-decision>` block telling the model the outcome and not to run the command itself.
 

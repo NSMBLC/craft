@@ -12,13 +12,21 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
 ## The files (all editable by you until the investigation closes)
 
 - `problem.md`: the one-page question. Approved by the researcher; if it changes later, they re-approve it.
-- `hypotheses/H<n>.md`: one per hypothesis. An **idea** is just a file with a `claim:` line;
-  a full draft adds warrant, criteria, outcome rule, two or more rivals with discriminators,
-  predictions and a power check. Fill in `origin: researcher|agent` and `derived_from:` (the verdict
-  file, experiment, `lit:<key>` or question that prompted it). To drop one, set `dropped: <reason>`.
+- `hypotheses/H<n>.md`: one per hypothesis. An **idea** is just a file with a `claim:` line
+  (`craft validate` accepts it as an idea; `--full` lists what a draft needs); a full draft adds warrant,
+  criteria, outcome rule, two or more rivals with discriminators, predictions and a power check. Fill in
+  `origin: researcher|agent` and `derived_from:` (the verdict file, experiment, `lit:<key>` or question
+  that prompted it). To drop one, set `dropped: <reason>`. A criterion whose metric has no spread (exact
+  computation on fixed inputs) says `deterministic: <why>` before review; evidence never declares it. If
+  the outcome rule is exactly "all supported -> supported, any refuted -> refuted, else inconclusive",
+  set `outcome_rule.mechanical: true`; otherwise CRAFT's label is shown as a roll-up next to the rule.
 - `experiments/<name>/plan.md`: `description:` and `tests: [H1:C1, H2]` (or `exploratory: true`),
-  plus `origin`/`derived_from`; `abandoned: <reason>` to stop one. Status (planned, run, done) is derived.
-- `questions.md`: parked questions, one `- ` bullet each.
+  plus `origin`/`derived_from`; `abandoned: <reason>` to stop one. Status (planned, run, done) is derived;
+  an exploratory experiment counts as run once `exploratory/` has output.
+- `waits_on: [H8, H8:C1, <experiment>, "free text"]` on a hypothesis or plan records what must come
+  first; the board shows it, and the next step skips work that is still waiting.
+- `questions.md`: parked questions, one `- ` bullet each. When one is answered, add
+  `answered: <pointer>` (the verdict, experiment or source that answered it) to its bullet.
 - `literature/`: open at all times; new searches are welcome whenever results raise new questions.
 
 ## The workflow
@@ -69,13 +77,17 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
 5. **Experiments**: write `experiments/<name>/plan.md` before running. Evidence goes in
    `experiments/<name>/evidence/` and can only be written once every hypothesis the plan tests is
    registered; exploration goes in `exploratory/` at any time and can never back a criterion.
-   Record the environment with `craft lock <file>` before the first verdict. Never edit `env.lock`:
+   Record input data that criteria depend on with `craft data add <path> --id <data_id>` before
+   the runs, and name that `data_id` in the evidence; a changed snapshot gets a new id, never an edit.
+   Record the environment with `craft lock <lock file>` before the first verdict (only lock files:
+   uv.lock, requirements*.txt, environment.yml...). Never edit `env.lock`:
    run `craft propose package <pkg> --reason ...` and stop until the researcher types
    `/craft-approve` (or `/craft-reject --note ...`). Record results with
    `craft verdict <exp> --criterion H1:C1 --evidence <file> [--exploratory <dir>]`; the label is
    computed from the registered threshold. Kill criteria from `problem.md` are checked the same way
    (`--criterion K1`); pilot evidence belongs there. A met kill criterion halts everything and
-   routes the investigation to closure: stop and report.
+   routes the investigation to closure: stop and report. When `craft verdict` refuses an evidence file
+   it lists everything missing at once: fix all of it before retrying.
 6. **After every verdict or new source, suggest.** Propose up to three follow-ups grounded in that
    result (a question, a hypothesis, or an experiment), each with `derived_from:` pointing at what
    prompted it. Write the ones the researcher accepts as files; never promote an idea to a draft or
@@ -83,6 +95,14 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
 7. **Closure**: the researcher closes whenever they choose. Fill `closure.md` (anomalies -> open
    questions), then stop: the researcher types `/craft-close`. Registered-but-untested hypotheses,
    ideas, unfinished experiments and `questions.md` all become open questions. Memory is written only there.
+
+## Keeping the record true
+- A limitation found after a verdict (the result holds for what was tested, but not for what others
+  will read into it): `craft limitation <exp> --criterion H1:C1 --text "..." --source <where it was found>`.
+  The verdict and its label stay; the limitation is shown with it everywhere, including memory.
+- A memory entry that turned out wrong: never work around it. Show the researcher the entry and the
+  evidence, and give them the command to type:
+  `/craft-correct <entry-id> --note "what is wrong and what is true instead" --evidence <file>`.
 
 ## Changing your mind is allowed, and recorded
 - Editing a registered hypothesis before its data exist: run `craft review --hyp H<n>` to register
@@ -96,7 +116,8 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
 
 ## Asking for a decision
 Whenever the next step is the researcher's, end your message with the exact slash command on
-its own line (`/craft-approve`, `/craft-reject --note "..."`, `/craft-close`, `/craft-resolve --note "..."`).
+its own line (`/craft-approve`, `/craft-reject --note "..."`, `/craft-close`, `/craft-resolve --note "..."`,
+`/craft-correct <id> --note "..."`), exactly as `craft status` shows it (with `--inv <id>` when it says so).
 `craft status` is the board (hypotheses, experiments, open questions) and tells you whose turn
 it is. The researcher can also type `/craft-status`, `/craft-help`, `/craft-decisions`,
 `/craft-explain <id>`; CRAFT answers those directly in a `<craft-info>` block, which you show verbatim.

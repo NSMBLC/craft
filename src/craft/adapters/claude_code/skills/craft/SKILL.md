@@ -22,5 +22,5 @@ Subcommands you may be asked for (map to CLI and files):
 - `/craft explain <id>` — walk a finding's evidence chain.
 
 Never attempt to bypass a refusal. The researcher's decisions are theirs: approve, reject, close,
-resolve. They type them as slash commands (`/craft-approve`, `/craft-reject`, `/craft-close`,
-`/craft-resolve`); CRAFT's prompt hook executes them and shows you a `<craft-decision>` block.
+resolve, correct. They type them as slash commands (`/craft-approve`, `/craft-reject`, `/craft-close`,
+`/craft-resolve`, `/craft-correct`); CRAFT's prompt hook executes them and shows you a `<craft-decision>` block.

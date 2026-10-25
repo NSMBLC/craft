@@ -48,6 +48,8 @@ def validate_hypothesis(path: Path) -> Validation:
                 v.error(f"criteria[{i}].op", f"must be one of {sorted(OPS)}")
             if c.get("threshold") is not None and not isinstance(c.get("threshold"), (int, float)):
                 v.error(f"criteria[{i}].threshold", "must be a number")
+            if "deterministic" in c and not nonempty(c.get("deterministic")):
+                v.error(f"criteria[{i}].deterministic", "say why the metric has no spread (e.g. exact enumeration on fixed inputs), or remove it")
             if c.get("name") in names:
                 v.error(f"criteria[{i}].name", "duplicate criterion name")
             names.add(c.get("name"))
@@ -59,6 +61,9 @@ def validate_hypothesis(path: Path) -> Validation:
         for k in REQUIRED_OUTCOMES:
             if not nonempty(outcome.get(k)):
                 v.error(f"outcome_rule.{k}", "missing")
+        if "mechanical" in outcome and not isinstance(outcome.get("mechanical"), bool):
+            v.error("outcome_rule.mechanical", "true or false: true says the rule is exactly CRAFT's roll-up "
+                    "(all criteria supported -> supported; any refuted -> refuted; otherwise inconclusive)")
 
     rivals = fm.get("rivals")
     if not isinstance(rivals, list) or len(rivals) < 2:
@@ -89,6 +94,29 @@ def validate_hypothesis(path: Path) -> Validation:
         if power.get("detectable") is False:
             v.error("power.detectable", "the planned runs cannot detect the claimed effect; change the design")
     return v
+
+
+DESIGN_FIELDS = ("warrant", "criteria", "outcome_rule", "rivals", "predictions", "power")
+_LABEL_KEYS = {"name", "op"}  # template defaults, not content
+
+
+def _filled(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return bool(v.strip())
+    if isinstance(v, dict):
+        return any(_filled(x) for k, x in v.items() if k not in _LABEL_KEYS)
+    if isinstance(v, list):
+        return any(_filled(x) for x in v)
+    return v is not None
+
+
+def is_idea(fm: dict) -> bool:
+    """A parked idea: a claim and nothing of the design yet. Valid as an idea; review needs a full draft."""
+    return nonempty(fm.get("claim")) and not any(_filled(fm.get(k)) for k in DESIGN_FIELDS)
 
 
 def criteria_table(fm: dict) -> dict[str, dict]:

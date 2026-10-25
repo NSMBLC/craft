@@ -44,3 +44,16 @@
 | 8.5 | test_24_evidence_that_predates_registration_cannot_back_it |
 | 8.6 | test_25_board_reflects_every_state |
 | 8.7 | test_26_literature_stays_open_and_review_record_is_kept, test_31_fresh_clone_verifies_and_still_detects_edits |
+| 9.1 | test_exploratory_work_that_ran_is_recorded_as_run |
+| 9.2 | test_answered_questions_are_recorded_as_answered |
+| 9.3 | test_limitation_travels_with_the_verdict |
+| 9.4 | test_memory_correction_is_a_researcher_decision_shown_with_the_entry |
+| 9.5 | test_kill_check_evidence_does_not_block_reregistration |
+| 9.6 | test_hypothesis_label_states_its_basis |
+| 9.7 | test_deterministic_metric_is_declared_at_registration |
+| 9.8 | test_input_data_is_recorded_and_a_change_is_held |
+| 9.9 | test_environment_record_only_describes_an_environment |
+| 9.10 | test_a_bare_decision_reaches_the_one_waiting_investigation |
+| 9.11 | test_a_parked_idea_validates_as_an_idea |
+| 9.12 | test_memory_is_not_repeated_within_a_session |
+| 9.13 | test_sequencing_is_on_the_board |

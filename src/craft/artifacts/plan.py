@@ -1,7 +1,8 @@
 """experiments/<name>/plan.md: what an experiment tests, written before it runs.
 
 Frontmatter: `description`, `tests` (list of `H1:C1`, or `H1` for all of H1's criteria),
-optionally `exploratory: true`, `origin`, `derived_from`, `abandoned: <reason>`.
+optionally `exploratory: true`, `origin`, `derived_from`, `waits_on` (what must come first),
+`abandoned: <reason>`.
 Status (planned / run / done / abandoned) is derived, never set by hand.
 """
 

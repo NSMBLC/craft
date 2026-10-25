@@ -5,7 +5,9 @@ Evidence file (JSON or YAML) shapes accepted:
   {"metric": "acc_gain", "value": 1.4, "ci": [1.2, 1.6], "n": 5, ...}
   {"metrics": {"acc_gain": {...as above...}, "other": {...}}, "seeds": [...], "data_id": "..."}
   {"<metric>": 1.31, "<metric>_ci95": [1.1, 1.5]}          (flat; seeds/data_id via flags or top-level keys)
-Uncertainty is mandatory: either `values` (>=2) or `ci`.
+Uncertainty is mandatory: either `values` (>=2) or `ci`, unless the registered criterion declares
+`deterministic: <why>` (exact computation on fixed inputs); then a single `value` is compared directly.
+That declaration is part of the hypothesis review registers; evidence cannot declare it.
 """
 
 from __future__ import annotations
@@ -39,7 +41,8 @@ class Measurement:
     seeds: list | None
     data_id: str | None
     unit: str | None
-    source: str  # "values" | "ci"
+    source: str  # "values" | "ci" | "deterministic"
+    deterministic: str | None = None  # why the metric has no spread, as registered
 
 
 def load_evidence(path: Path) -> dict:
@@ -52,7 +55,8 @@ def load_evidence(path: Path) -> dict:
     return data
 
 
-def extract(data: dict, metric: str) -> Measurement:
+def _block(data: dict, metric: str) -> dict | None:
+    """The part of an evidence file that reports `metric`, normalised; None when absent."""
     block = None
     if isinstance(data.get("metrics"), dict) and metric in data["metrics"]:
         block = dict(data["metrics"][metric])
@@ -73,14 +77,73 @@ def extract(data: dict, metric: str) -> Measurement:
             block["n"] = data[f"{metric}_n"]
     elif isinstance(data.get(f"{metric}_values"), list):
         block = {"values": data[f"{metric}_values"], "seeds": data.get("seeds"), "data_id": data.get("data_id"), "unit": None}
+    return block
+
+
+def _metric_missing(metric: str) -> str:
+    return (f"metric '{metric}': not found — the number the criterion is judged on. Accepted shapes: "
+            f"{{\"metric\": \"{metric}\", \"values\": [...]}}, {{\"metrics\": {{\"{metric}\": {{...}}}}}}, "
+            f"or flat {{\"{metric}\": <number>, \"{metric}_ci95\": [lo, hi]}}")
+
+
+def _uncertainty_missing(metric: str) -> str:
+    return (f"uncertainty for '{metric}': missing — a verdict compares an interval with the threshold. Give `values` "
+            "(>=2 per-run numbers, e.g. \"values\": [1.38, 1.42, 1.40]) or `value` + `ci` (e.g. \"value\": 1.4, "
+            "\"ci\": [1.3, 1.5]). A verdict without uncertainty is not auditable. If the metric is deterministic (exact "
+            "computation on fixed inputs), that is declared on the criterion (`deterministic: <why>`) before registration, "
+            "never from the evidence.")
+
+
+def _has_uncertainty(block: dict) -> bool:
+    vals = block.get("values")
+    ci = block.get("ci")
+    return (isinstance(vals, list) and len(vals) >= 2) or (block.get("value") is not None and isinstance(ci, (list, tuple)) and len(ci) == 2)
+
+
+def missing_fields(data: dict, metric: str, seeds: list, data_ids: list, deterministic: str | None = None) -> list[str]:
+    """Everything an evidence file still lacks before it can back a verdict, all at once."""
+    out = []
+    block = _block(data, metric)
     if block is None:
-        raise CraftError(
-            f"metric '{metric}' not found in evidence file. Accepted shapes: {{\"metric\": \"{metric}\", \"values\": [...]}}, "
-            f"{{\"metrics\": {{\"{metric}\": {{...}}}}}}, or flat {{\"{metric}\": <number>, \"{metric}_ci95\": [lo, hi]}}"
-        )
+        out.append(_metric_missing(metric))
+    elif deterministic:
+        if block.get("value") is None and not block.get("values"):
+            out.append(f"value for '{metric}': missing — the criterion is registered as deterministic, so give the single "
+                       "\"value\" it produced.")
+    elif not _has_uncertainty(block):
+        out.append(_uncertainty_missing(metric))
+    src = block or data
+    if not seeds and not src.get("seeds") and not data.get("seeds"):
+        out.append("seeds: missing — which runs produced the numbers, so they can be regenerated. Put e.g. "
+                   "\"seeds\": [1, 2, 3, 4, 5] (or a range, \"seeds\": \"1-200\") in the evidence file, or pass --seed. "
+                   "A deterministic computation names its fixed inputs instead, e.g. \"seeds\": [\"none: exact enumeration\"].")
+    if not data_ids and not src.get("data_id") and not data.get("data_id"):
+        out.append("data_id: missing — which data the runs used, so a changed or re-downloaded input is noticed. Put e.g. "
+                   "\"data_id\": \"prices-2026-09-snapshot\" in the evidence file (ideally an id recorded with "
+                   "`craft data add`), or pass --data-id.")
+    return out
+
+
+def extract(data: dict, metric: str, deterministic: str | None = None) -> Measurement:
+    block = _block(data, metric)
+    if block is None:
+        raise CraftError(_metric_missing(metric))
     seeds = block.get("seeds")
     data_id = block.get("data_id")
     unit = block.get("unit")
+    if deterministic:
+        vals = [float(x) for x in block["values"]] if isinstance(block.get("values"), list) and block["values"] else []
+        if vals and max(vals) - min(vals) > 1e-12 * max(1.0, abs(vals[0])):
+            raise CraftError(f"'{metric}' is registered as deterministic ({deterministic}) but its values vary "
+                             f"({min(vals):.6g} to {max(vals):.6g}); a deterministic metric gives one value.")
+        ci = block.get("ci")
+        if isinstance(ci, (list, tuple)) and len(ci) == 2 and abs(float(ci[1]) - float(ci[0])) > 0:
+            raise CraftError(f"'{metric}' is registered as deterministic ({deterministic}) but the evidence gives an "
+                             f"interval {list(ci)}; report the single value it produced.")
+        point = float(block["value"]) if block.get("value") is not None else (vals[0] if vals else None)
+        if point is None:
+            raise CraftError(f"'{metric}' is registered as deterministic: give the single \"value\" it produced.")
+        return Measurement(metric, point, point, point, len(vals) or 1, seeds, data_id, unit, "deterministic", deterministic)
     if isinstance(block.get("values"), list) and len(block["values"]) >= 2:
         vals = [float(x) for x in block["values"]]
         n = len(vals)
@@ -91,10 +154,7 @@ def extract(data: dict, metric: str) -> Measurement:
     if block.get("value") is not None and isinstance(block.get("ci"), (list, tuple)) and len(block["ci"]) == 2:
         lo, hi = float(block["ci"][0]), float(block["ci"][1])
         return Measurement(metric, float(block["value"]), min(lo, hi), max(lo, hi), block.get("n"), seeds, data_id, unit, "ci")
-    raise CraftError(
-        f"metric '{metric}' has no uncertainty: provide `values` (>=2 per-seed numbers) or `value` + `ci`. "
-        "A verdict without uncertainty is not auditable."
-    )
+    raise CraftError(_uncertainty_missing(metric))
 
 
 def compare(op: str, x: float, threshold: float) -> bool:
@@ -110,6 +170,10 @@ def label_for(m: Measurement, op: str, threshold: float) -> tuple[str, str]:
     refuted     — the whole interval fails it;
     inconclusive — the interval spans the threshold."""
     point_ok = compare(op, m.point, threshold)
+    if m.source == "deterministic":
+        verb = "satisfies" if point_ok else "fails"
+        return ("supported" if point_ok else "refuted",
+                f"deterministic value {m.point:.6g} ({m.deterministic}) {verb} {op} {threshold}")
     lo_ok = compare(op, m.ci_low, threshold)
     hi_ok = compare(op, m.ci_high, threshold)
     if op in ("==", "!="):

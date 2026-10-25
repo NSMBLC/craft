@@ -22,7 +22,7 @@ def load_context(prog: Programme, inv_id: str | None) -> tuple[InvestigationPath
     return inv, InvestigationState.load(inv.root)
 
 
-def _verify_root(root: Path, label: str) -> list[str]:
+def _verify_root(root: Path, label: str, prog: Programme | None = None, full: bool = False) -> list[str]:
     try:
         state = InvestigationState.load(root)
     except CraftError as e:
@@ -39,12 +39,19 @@ def _verify_root(root: Path, label: str) -> list[str]:
     for v in state.verdicts:
         if not (root / v.file).exists():
             problems.append(f"{label}: verdict file {v.file} is missing")
+    if prog is not None:  # open investigations only: an archive keeps the hashes, the data may move on
+        from . import data as data_mod
+
+        for did, rec in sorted(state.data.items()):
+            p = data_mod.check(prog, did, rec, full)
+            if p:
+                problems.append(f"{label}: {p} (held for the researcher; new data is recorded under a new id)")
     return problems
 
 
-def verify_investigation(prog: Programme, inv_id: str, taint: bool = True) -> list[str]:
+def verify_investigation(prog: Programme, inv_id: str, taint: bool = True, full: bool = False) -> list[str]:
     root = prog.investigation_dir(inv_id)
-    problems = _verify_root(root, inv_id)
+    problems = _verify_root(root, inv_id, prog, full)
     if problems and taint:
         state = InvestigationState.load(root)
         if not state.tainted:
@@ -62,8 +69,9 @@ def verify_memory(prog: Programme) -> list[str]:
     problems = []
     from .util import read_jsonl
 
-    for kind in ("finding", "refuted", "open"):
-        path = prog.memory_file(kind)
+    from .paths import MEMORY_FILES
+
+    for path in [prog.memory_file(k) for k in MEMORY_FILES] + [prog.memory_corrections]:
         try:
             read_jsonl(path)
         except Exception as e:  # noqa: BLE001
@@ -71,10 +79,10 @@ def verify_memory(prog: Programme) -> list[str]:
     return problems
 
 
-def verify_all(prog: Programme) -> list[str]:
+def verify_all(prog: Programme, full: bool = False) -> list[str]:
     problems = []
     for inv_id in prog.list_investigations():
-        problems += verify_investigation(prog, inv_id)
+        problems += verify_investigation(prog, inv_id, full=full)
     for inv_id in prog.list_archived():
         problems += verify_archive(prog, inv_id)
     problems += verify_memory(prog)
@@ -94,7 +102,7 @@ def status_text(prog: Programme, inv_id: str | None = None) -> str:
         except CraftError as e:
             lines.append(f"- {i}: {e}")
             continue
-        lines.append(registry.board_text(inv, st))
+        lines.append(registry.board_text(inv, st, lambda cmd, i=i: decision_cmd(prog, i, cmd)))
     archived = prog.list_archived()
     if archived and not inv_id:
         lines.append(f"Archived investigations: {', '.join(archived)}")
@@ -108,6 +116,9 @@ RESEARCHER_HELP = """Your commands (type them as messages; CRAFT executes them b
   /craft-close                   close the investigation whenever you choose: outcomes go to memory,
                                  untested hypotheses, ideas and questions to open questions, files to archive
   /craft-resolve --note "..."    clear an integrity hold after you have reviewed what happened
+  /craft-correct <id> --note "..." [--evidence <file>]
+                                 correct a memory entry that turned out wrong; the entry stays as
+                                 written and the correction is shown wherever it is
   /craft-status                  the board: hypotheses, experiments, open questions, whose turn it is
   /craft-decisions               the log of your decisions
   /craft-explain <id>            walk a finding's evidence chain (e.g. F-0001, R-0002)
@@ -140,14 +151,25 @@ def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
     rec = mem.find_entry(prog, entry_id)
     if rec is None:
         raise CraftError(f"no memory entry {entry_id}")
-    out = [f"[{rec['kind']}] {entry_id}: {rec.get('claim') or rec.get('question')}",
+    out = [f"[{rec['kind']}] {entry_id}: {mem.entry_text(rec)}",
            f"  investigation: {rec.get('investigation')}  closed: {rec.get('closed', '')[:10]}"]
     if rec.get("post_hoc"):
         out.append("  POST-HOC: the criterion was changed after registration; the label is the pre-registered one")
+    if rec.get("outcome_basis"):
+        out.append(f"  hypothesis {rec.get('hypothesis')} {rec.get('hypothesis_outcome')}, {rec['outcome_basis']}")
+    for lim in rec.get("limitations") or []:
+        out.append(f"  LIMITATION (found after the verdict, {lim.get('when', '')[:10]}): {lim.get('text')} [source: {lim.get('source')}]")
+    for c in rec.get("corrections") or []:
+        ev = c.get("evidence") or {}
+        out.append(f"  CORRECTED by the researcher {c.get('when', '')[:10]}: {c.get('note')}"
+                   + (f" [evidence {ev.get('path')}]" if ev else ""))
+    if rec.get("answered_by"):
+        out.append(f"  answered by: {rec['answered_by']}")
     lin = rec.get("lineage")
     if not lin:
-        out.append("  (no evidence lineage: this entry is an open question or anomaly)")
-        return "\n".join(out), 0
+        out.append("  (no evidence lineage: this entry is an open question, answered question, anomaly or exploratory work)")
+        broken = _check_correction_evidence(prog, rec, out)
+        return "\n".join(out), broken
     broken = 0
     out.append(f"  criterion {lin['criterion']} in experiment {lin['experiment']}: observed {lin.get('observed')} vs threshold {lin.get('threshold')}")
     vf = prog.root / lin["verdict_file"]
@@ -164,9 +186,95 @@ def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
     ok = hyp.exists() and (lin.get("hypothesis_sha256") is None or sha256_file(hyp) == lin["hypothesis_sha256"])
     broken += 0 if ok else 1
     out.append(f"  registered hypothesis {hyp_rel}: {'resolves' if ok else 'BROKEN'}")
+    if lin.get("limitations_file"):
+        ok = (prog.root / lin["limitations_file"]).exists()
+        broken += 0 if ok else 1
+        out.append(f"  limitations {lin['limitations_file']}: {'resolves' if ok else 'BROKEN'}")
     out.append(f"  env v{lin.get('env_version')}; seeds {lin.get('seeds')}; data {lin.get('data_ids')}")
+    for d in lin.get("data_records") or []:
+        from . import data as data_mod
+
+        try:
+            now = data_mod.snapshot(prog, prog.root / d["path"])["sha256"]
+            state_ = "matches the recorded hash" if now == d["sha256"] else "DIFFERS from the recorded hash"
+            broken += 0 if now == d["sha256"] else 1
+        except CraftError:
+            state_ = "not present here (recorded hash kept)"
+        out.append(f"  data {d['id']} {d['path']} (sha256 {d['sha256'][:12]}): {state_}")
+    broken += _check_correction_evidence(prog, rec, out)
     out.append("Every link resolves." if not broken else f"{broken} link(s) do not resolve.")
     return "\n".join(out), broken
+
+
+def _check_correction_evidence(prog: Programme, rec: dict, out: list[str]) -> int:
+    from .util import sha256_file
+
+    broken = 0
+    for c in rec.get("corrections") or []:
+        ev = c.get("evidence")
+        if ev:
+            p = prog.root / ev["path"]
+            ok = p.exists() and sha256_file(p) == ev["sha256"]
+            broken += 0 if ok else 1
+            out.append(f"  correction evidence {ev['path']}: {'resolves' if ok else 'BROKEN'}")
+    return broken
+
+
+def awaits(prog: Programme, inv_id: str, verb: str) -> bool:
+    """Is investigation `inv_id` waiting on the researcher's `verb` right now?"""
+    from . import registry
+    from .state import Phase
+
+    try:
+        inv, st = load_context(prog, inv_id)
+    except CraftError:
+        return False
+    if verb == "approve":
+        return bool(st.env.pending_proposal) or st.phase == Phase.FRAMING or registry.problem_changed(inv, st)
+    if verb == "reject":
+        return bool(st.env.pending_proposal)
+    if verb == "resolve":
+        return st.tainted
+    if verb == "close":
+        who, cmd, _ = registry.next_action(inv, st)
+        return who == "researcher" and cmd.startswith("/craft-close")
+    return False
+
+
+def decision_target(prog: Programme, inv_id: str | None, verb: str) -> str | None:
+    """Which investigation a decision typed without --inv is for: the only open one, or the only one
+    waiting on that decision. Ambiguity is refused with each investigation and what it waits on."""
+    from . import registry
+
+    invs = prog.list_investigations()
+    if inv_id or len(invs) <= 1:
+        return inv_id
+    waiting = [i for i in invs if awaits(prog, i, verb)]
+    if len(waiting) == 1:
+        return waiting[0]
+    lines = []
+    for i in invs:
+        try:
+            inv, st = load_context(prog, i)
+            who, cmd, why = registry.next_action(inv, st)
+            lines.append(f"  {i}: waiting on the {who}" + (f": `{cmd} --inv {i}`" if who == "researcher" else "") + f" ({why})")
+        except CraftError as e:
+            lines.append(f"  {i}: {e}")
+    what = "none of them is" if not waiting else f"{len(waiting)} of them are"
+    raise CraftError(f"several investigations are open and {what} waiting on `/craft-{verb}`; add --inv <id>:\n"
+                     + "\n".join(lines))
+
+
+def decision_cmd(prog: Programme, inv_id: str, cmd: str) -> str:
+    """`cmd` as the researcher should type it: bare when it reaches `inv_id` unambiguously, else with --inv."""
+    import re
+
+    m = re.match(r"/craft-(\w+)", cmd)
+    if not m or "--inv" in cmd or len(prog.list_investigations()) <= 1:
+        return cmd
+    verb = m.group(1)
+    waiting = [i for i in prog.list_investigations() if awaits(prog, i, verb)]
+    return cmd if waiting == [inv_id] else f"{cmd} --inv {inv_id}"
 
 
 def pick_investigation(prog: Programme, inv_id: str | None) -> str:

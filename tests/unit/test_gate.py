@@ -111,3 +111,15 @@ def test_bash_screen_ignores_emails_and_arrows(tmp_path):
     assert decide_bash(prog, 'git commit -m "craft init -> scaffolding; a => b" craft.yaml', tmp_path.resolve()).allow
     d = decide_bash(prog, "echo x > craft.yaml", tmp_path.resolve())
     assert not d.allow and "looked like a write because of `>`" in d.reason
+
+
+def test_bash_screen_matches_decision_subcommands_not_words(tmp_path):
+    (tmp_path / "craft.yaml").write_text("version: 1\n")
+    prog = Programme(tmp_path)
+    for cmd in ("craft correct Q-0001 --note x", "uv run craft close", "python -m craft.cli resolve --note x",
+                "craft 'approve' problem", "cd x; craft reject --note y"):
+        assert not decide_bash(prog, cmd, tmp_path).allow, cmd
+    for cmd in ('craft propose package scipy --reason "the old build would reject float128"',
+                'craft limitation exp1 --criterion H1:C1 --text "close to the threshold; correct only in simulation" --source x',
+                "grep -n approve docs/journeys.md"):
+        assert decide_bash(prog, cmd, tmp_path).allow, cmd

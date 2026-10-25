@@ -329,7 +329,7 @@ def test_08_hypothesis_with_one_rival_is_incomplete_and_still_a_draft(arc: Craft
     # a one-line idea is parked next to it; `craft validate` lists it as an idea without failing on it
     arc.write(f"investigations/{INV}/hypotheses/H2.md", H2_IDEA)
     r = arc("validate", "--inv", INV)
-    assert "hypotheses/H2.md: incomplete draft" in r.out
+    assert "hypotheses/H2.md: a parked idea" in r.out
     # draft: editable, not binding
     assert arc.hook("Edit", file_path=str(p), old_string="a", new_string="b").code == 0
     assert board(arc)["hypotheses"]["H1"]["status"] == "draft"
