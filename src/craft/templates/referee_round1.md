@@ -14,6 +14,9 @@ Look especially for:
 - a criterion judged by an interval although its metric has no run-to-run spread (exact computation
   on fixed inputs), or a criterion declared `deterministic` although its metric can vary between runs
   (a declared criterion is judged on a single value, with no interval)
+- choices made while building the input data (sources, conversions, proxies, filled gaps; see the
+  recorded input data, or their absence) that could reasonably have gone the other way and would
+  change or narrow the claim, but are not stated as conditions or rivals
 - outcome rules that do not cover every case, or that let "inconclusive" masquerade as support
 - claims of novelty not backed by the named closest prior work
 

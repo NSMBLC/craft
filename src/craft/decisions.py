@@ -140,6 +140,8 @@ def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via:
         lines.append(f"  exploratory work recorded: {', '.join(explored)}")
     if pending:
         lines.append(f"  experiments not finished: {', '.join(pending)}")
+    if found := registry.unjudged_evidence(inv, state, exps):
+        lines.append(f"  evidence with no verdict (closes as untested unless judged first): {registry.unjudged_text(found)}")
     pq = registry.parked_questions(inv, state)
     if pq:
         n_ans = sum(q.answered for q in pq)

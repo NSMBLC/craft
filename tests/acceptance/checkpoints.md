@@ -61,3 +61,5 @@
 | 9.15 | test_one_glossary_for_the_words_on_the_board |
 | 9.16 | test_refresh_reports_changes_and_never_nests |
 | 9.17 | test_evidence_can_be_checked_before_the_real_run |
+| 9.18 | test_a_kill_still_lets_existing_evidence_be_judged |
+| 9.19 | test_how_data_were_derived_reaches_the_referee |

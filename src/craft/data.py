@@ -53,19 +53,31 @@ def combined(files: dict) -> str:
     return h.hexdigest()
 
 
-def add(prog: Programme, state: InvestigationState, path: Path, data_id: str, note: str) -> tuple[dict, bool]:
-    """Record `path` as `data_id`. Returns (record, newly_added). A changed snapshot needs a new id."""
+def add(prog: Programme, state: InvestigationState, path: Path, data_id: str, note: str,
+        derivation: str = "") -> tuple[dict, bool]:
+    """Record `path` as `data_id`. Returns (record, newly_added). A changed snapshot needs a new id.
+
+    `derivation` says how the data were built (sources, transformations, choices that could have gone
+    the other way); the referee sees it. It can be added later to a record that has none, never changed.
+    """
     snap = snapshot(prog, path)
     old = state.data.get(data_id)
     if old:
         if old["sha256"] == snap["sha256"] and old["path"] == snap["path"]:
+            if derivation and derivation != old.get("derivation"):
+                if old.get("derivation"):
+                    raise CraftError(f"data '{data_id}' already has a recorded derivation; it is part of the record "
+                                     "and is not rewritten. Record a limitation on the affected verdicts instead.")
+                old["derivation"] = derivation
+                old["derivation_when"] = now_iso()
+                return old, True
             return old, False
         raise CraftError(
             f"data id '{data_id}' is already recorded for {old['path']} (sha256 {old['sha256'][:12]}) and this differs. "
             "Recorded inputs never change under the same id: record the new snapshot under a new id, and name that id "
             "in new evidence."
         )
-    rec = {**snap, "when": now_iso(), "note": note}
+    rec = {**snap, "when": now_iso(), "note": note, **({"derivation": derivation} if derivation else {})}
     state.data[data_id] = rec
     return rec, True
 

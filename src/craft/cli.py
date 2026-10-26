@@ -788,6 +788,8 @@ app.add_typer(data_app, name="data")
 def data_add(path: Path = typer.Argument(..., help="A data file or directory inside the programme."),
              data_id: str = typer.Option(..., "--id", help="The data_id evidence files will name, e.g. prices-2026-09-snapshot."),
              note: str = typer.Option("", "--note", help="What it is and where it came from."),
+             derivation: str = typer.Option("", "--derivation", help="How it was built: sources, transformations, and "
+                                            "choices that could have gone the other way. The referee sees it."),
              inv_id: Optional[str] = INV_OPT) -> None:
     """Record an input snapshot by hash. A change to it is detected and held for the researcher."""
     from . import data as data_mod
@@ -795,10 +797,12 @@ def data_add(path: Path = typer.Argument(..., help="A data file or directory ins
     prog, inv, state = _ctx(inv_id)
     state.require_untainted("record data")
     state.require_phase(Phase.FRAMING, Phase.OPEN, Phase.CLOSING, action="record data")
-    rec, new = data_mod.add(prog, state, path, data_id, note)
+    rec, new = data_mod.add(prog, state, path, data_id, note, derivation)
     state.save(inv.root)
     echo(f"Data '{data_id}' {'recorded' if new else 'already recorded, unchanged'}: {rec['path']} ({data_mod.shown_hash(rec)}). "
-         f"Evidence naming data_id '{data_id}' is checked against it; `craft verify` detects any change.")
+         f"Evidence naming data_id '{data_id}' is checked against it; `craft verify` detects any change."
+         + ("" if rec.get("derivation") else " No derivation recorded: add `--derivation \"...\"` (sources, "
+            "transformations, choices that could have gone the other way) so the referee can review them."))
 
 
 @data_app.command("list")
@@ -812,6 +816,8 @@ def data_list(inv_id: Optional[str] = INV_OPT) -> None:
     for did, rec in state.data.items():
         echo(f"{did}: {rec['path']} ({data_mod.shown_hash(rec)}, recorded {rec['when'][:10]})"
              + (f" — {rec['note']}" if rec.get("note") else ""))
+        if rec.get("derivation"):
+            echo(f"    derivation: {rec['derivation']}")
         if rec["kind"] == "dir":
             for name, f in sorted(rec["files"].items()):
                 echo(f"    {name}: sha256 {f['sha256']}")
@@ -831,6 +837,7 @@ def _check_data(prog: Programme, state: InvestigationState, data_ids: list) -> l
             raise CraftError(f"{p}. A verdict cannot cite data that differs from what was recorded; the researcher "
                              "reviews what happened (`craft verify`), and new data is recorded under a new id.")
         out.append({"id": str(did), "path": rec["path"], "sha256": rec["sha256"],
+                    **({"derivation": rec["derivation"]} if rec.get("derivation") else {}),
                     **({"file_sha256": rec["files"]["."]["sha256"]} if rec["kind"] == "file" else {})})
     return out
 
@@ -853,14 +860,16 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     state.require_untainted("file a verdict")
     if state.phase == Phase.FRAMING:
         raise CraftError("the problem statement has not been approved yet; verdicts come after `/craft-approve` and review.")
-    if state.phase == Phase.CLOSING:
-        raise CraftError(f"investigation {state.id} is closing (kill criterion {state.kill.criterion} was met); no new verdicts.")
-    state.require_phase(Phase.OPEN, action="file a verdict")
+    closing = state.phase == Phase.CLOSING
+    state.require_phase(Phase.OPEN, Phase.CLOSING, action="file a verdict")
     if state.env.pending_proposal:
         raise CraftError(f"verdicts are halted: package proposal '{state.env.pending_proposal['package']}' awaits the researcher's `/craft-approve` (or `/craft-reject --note ...`).")
     pfm, _ = read_doc(inv.problem)
     kills = {k["id"]: k for k in kill_criteria(pfm)}
     if ":" not in criterion and criterion in kills:
+        if closing:
+            raise CraftError(f"investigation {state.id} is closing (kill criterion {state.kill.criterion} was met); "
+                             "no further kill checks.")
         return _kill_check(prog, inv, state, experiment, kills[criterion], evidence, metric, seed, data_id)
     hid, cname = _resolve_criterion(inv, state, criterion, kills)
     key = f"{hid}:{cname}"
@@ -886,6 +895,11 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
             f"{inv.rel(ev)} was produced before {hid} was registered ({hv.rec.registered_at}): data that existed before "
             f"the criteria were fixed cannot back them. Move it to experiments/{experiment}/exploratory/ and rerun."
         )
+    if closing and ev.stat().st_mtime >= registry.parse_iso(state.kill.when) + 1:  # kill.when has whole seconds
+        raise CraftError(
+            f"investigation {state.id} is closing (kill criterion {state.kill.criterion} was met {state.kill.when}) and "
+            f"{inv.rel(ev)} was produced after that; only evidence that existed when the kill was recorded can still be judged."
+        )
     links = _exploratory_links(inv, experiment, exploratory)
     data = load_evidence(ev)
     det = crit.get("deterministic") or None
@@ -898,7 +912,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     post_hoc = _post_hoc(hv, cname, crit, data, metric)
 
     killed = None
-    for k in kill_criteria(pfm):
+    for k in [] if closing else kill_criteria(pfm):
         if k["metric"] in _metric_names(data):
             km = extract(data, k["metric"], k.get("deterministic") or None)
             if compare(k["op"], km.point, float(k["value"])):
@@ -956,13 +970,15 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     if killed:
         _route_to_closing(inv, state, killed[0], killed[1].point, ev_rel)
         echo(f"KILL CRITERION {killed[0]['id']} MET ({killed[0]['condition']}; observed {killed[1].point:.6g}). "
-             "Remaining experiments are halted; the investigation is routed to closure. Fill closure.md (anomalies -> "
-             "open questions), then the researcher types `/craft-close`.")
+             "Remaining experiments are halted; the investigation is routed to closure. " + _after_kill(inv, state))
         return
     state.save(inv.root)
     hv = registry.hyp_view(inv, state, hid)
     left = f"; still untested: {', '.join(hv.untested)}" if hv.untested else ""
     basis = f" ({hv.label_basis()})" if hv.label_basis() else ""
+    if closing:
+        echo(f"{hid} is now {hv.status}{basis}{left}. The investigation is closing: " + _after_kill(inv, state))
+        return
     echo(f"{hid} is now {hv.status}{basis}{left}. Propose up to three follow-ups grounded in this result (a question in "
          "questions.md, a hypothesis in hypotheses/, or an experiment plan) with "
          f"`derived_from: {rel_v}`, and write the ones the researcher accepts.")
@@ -1131,6 +1147,7 @@ def _exploratory_links(inv: InvestigationPaths, experiment: str, exploratory: li
 def _data_lines(state: InvestigationState, data_ids: list, data_records: list[dict]) -> list[str]:
     lines = [f"Data {r['id']}: {r['path']} as recorded ("
              + (f"sha256 {r['file_sha256']}" if r.get("file_sha256") else f"manifest sha256 {r['sha256'][:12]}") + ")"
+             + (f"; derived: {r['derivation']}" if r.get("derivation") else "")
              for r in data_records]
     if state.data:
         unrecorded = [str(d) for d in data_ids if str(d) not in state.data]
@@ -1156,6 +1173,14 @@ def _repro(m, seed: list[str], data_id: list[str]) -> tuple[list, list]:
     seeds = seed or (m.seeds if m.seeds else [])
     data_ids = data_id or ([m.data_id] if m.data_id else [])
     return seeds, data_ids
+
+
+def _after_kill(inv: InvestigationPaths, state: InvestigationState) -> str:
+    """What is still to do once a kill fires: evidence that already exists is judged before anything is archived."""
+    found = registry.unjudged_evidence(inv, state)
+    first = ("Evidence produced before the kill still has no verdict, and can still be judged (nothing new can run): "
+             f"{registry.unjudged_text(found)}. Judge each with `craft verdict`; then " if found else "")
+    return first + "fill closure.md (anomalies -> open questions), then the researcher types `/craft-close`."
 
 
 def _route_to_closing(inv: InvestigationPaths, state: InvestigationState, k: dict, observed: float, evidence: str) -> None:
@@ -1224,8 +1249,7 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
     if met:
         _route_to_closing(inv, state, k, m.point, ev_rel)
         echo(f"KILL CRITERION {k['id']} MET ({k.get('condition')}; observed {m.point:.6g} {op} {value}). Written to {rel_v}. "
-             "Remaining experiments are halted; the investigation is routed to closure. Fill closure.md (anomalies -> "
-             "open questions), then the researcher types `/craft-close`.")
+             "Remaining experiments are halted; the investigation is routed to closure. " + _after_kill(inv, state))
         return
     state.save(inv.root)
     echo(f"Kill criterion {k['id']} NOT met (observed {m.point:.6g}, kill if {op} {value}). Recorded in {rel_v}; execution continues.")
