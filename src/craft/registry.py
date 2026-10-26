@@ -276,6 +276,45 @@ def evidence_for(inv: InvestigationPaths, state: InvestigationState, hid: str) -
     return out
 
 
+def unjudged_evidence(inv: InvestigationPaths, state: InvestigationState,
+                      exps: list[ExpView] | None = None) -> dict[str, list[tuple[str, str]]]:
+    """Criteria that have evidence but no verdict: "H1:C1" -> [(experiment, evidence path), ...].
+
+    An evidence file counts for a criterion when its experiment's plan tests the criterion and the
+    file reports the criterion's registered metric. "Not judged yet" is a different fact from "never
+    tested", so the board, the kill message and closure name these criteria.
+    """
+    from .artifacts.verdict import load_evidence
+
+    out: dict[str, list[tuple[str, str]]] = {}
+    hyps: dict[str, HypView] = {}
+    for e in exps if exps is not None else all_experiments(inv, state):
+        if e.exploratory or e.status == "abandoned" or not e.evidence:
+            continue
+        reported = {}
+        for rel in e.evidence:
+            try:
+                reported[rel] = _reported_metrics(load_evidence(inv.root / rel))
+            except (CraftError, ValueError, OSError):
+                reported[rel] = set()
+        for key in e.tests:
+            hid, _, cname = key.partition(":")
+            if key in e.verdicts or cname == "*":
+                continue
+            hv = hyps.setdefault(hid, hyp_view(inv, state, hid))
+            if not hv.rec.registered_sha256 or cname in hv.criteria_labels:
+                continue
+            metric = str(hv.criteria.get(cname, {}).get("metric") or "")
+            files = [rel for rel, names in reported.items() if metric and metric in names]
+            if files:
+                out.setdefault(key, []).extend((e.name, rel) for rel in files)
+    return out
+
+
+def unjudged_text(found: dict[str, list[tuple[str, str]]]) -> str:
+    return "; ".join(f"{k} ({', '.join(f'{exp}: {rel}' for exp, rel in v)})" for k, v in found.items())
+
+
 def _reported_metrics(data: dict) -> set[str]:
     names = set()
     if isinstance(data.get("metrics"), dict):
@@ -357,6 +396,10 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
                 "the one-page problem statement awaits the researcher's reading and approval "
                 "(the agent first fills it in and runs `craft validate problem`)")
     if ph == Phase.CLOSING:
+        if found := unjudged_evidence(inv, state):
+            return ("agent", "craft verdict <exp> --criterion <H:C> --evidence <file>",
+                    f"kill criterion {state.kill.criterion} was met, so nothing new can run; evidence produced before it "
+                    f"still has no verdict: {unjudged_text(found)}. Judge it, then the researcher closes")
         return ("researcher", "/craft-close",
                 f"kill criterion {state.kill.criterion} was met, so no new evidence is accepted; the agent writes "
                 "closure.md (anomalies -> open questions), then the researcher closes")
@@ -391,9 +434,11 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
     parked = {h.id: r for h in hyps if (r := not_tested_reason(inv, state, h, exps))}
     running = [h for h in hyps if h.status == "registered" and h.untested and h.id not in parked]
     if running:
+        found = unjudged_evidence(inv, state, exps)
         what = "; ".join(f"{h.id} ({', '.join(h.untested)})" for h in running)
+        have = f" Evidence without a verdict: {unjudged_text(found)}." if found else ""
         return ("agent", "craft verdict <exp> --criterion <H:C> --evidence <file>",
-                f"registered criteria still need evidence: {what}. Run the experiments, file verdicts, and propose follow-ups")
+                f"registered criteria still need evidence: {what}.{have} Run the experiments, file verdicts, and propose follow-ups")
     if not hyps:
         return ("agent", "write hypotheses/H1.md",
                 "no hypotheses yet: draft one (or several, or park one-line ideas) in hypotheses/")
@@ -441,6 +486,7 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         return "\n".join(lines)
     hyps = all_hypotheses(inv, state)
     exps = all_experiments(inv, state)
+    waiting = unjudged_evidence(inv, state, exps)
     lines.append("    Hypotheses:" if hyps else "    Hypotheses: none yet")
     for h in hyps:
         status = h.status
@@ -452,7 +498,8 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         if status == "in review":
             status = f"in review (round {len(h.rec.rounds)}, open {', '.join(h.rec.open_blocking)})"
         limited = {v.criterion.split(":", 1)[1] for v in state.verdicts if v.limitations and v.criterion.startswith(f"{h.id}:")}
-        crits = ", ".join(f"{c} {h.criteria_labels.get(c, '—')}" + (" (limitation)" if c in limited else "")
+        crits = ", ".join(f"{c} {h.criteria_labels.get(c, 'evidence, not judged' if f'{h.id}:{c}' in waiting else '—')}"
+                          + (" (limitation)" if c in limited else "")
                           for c in h.criteria) if h.rec.registered_sha256 else ""
         flags = []
         if parked:
@@ -485,7 +532,9 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         from .artifacts.fields import unrecognised
 
         odd = [f for f, _ in unrecognised(e.plan, "plan")]
+        unjudged = [k for k in waiting if any(x == e.name for x, _ in waiting[k])]
         extra = "; ".join(x for x in [what, judged, f"{len(e.evidence)} evidence file(s)" if e.evidence else "",
+                                       "evidence, not judged: " + ", ".join(unjudged) if unjudged else "",
                                        "fields CRAFT does not read: " + ", ".join(odd) if odd else "",
                                        f"{len(e.explored)} exploratory file(s)" if e.explored else "",
                                        f"abandoned: {e.abandoned}" if e.abandoned else ""] if x)

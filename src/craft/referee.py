@@ -41,7 +41,25 @@ def build_documents(inv: InvestigationPaths, hid: str) -> str:
         p = inv.root / rel
         if p.exists():
             parts.append(f"===== {rel} =====\n{p.read_text(encoding='utf-8')}\n")
+    parts.append(data_section(inv))
     return "\n".join(parts)
+
+
+def data_section(inv: InvestigationPaths) -> str:
+    """The recorded input data and how each was derived: data choices are analysis choices."""
+    from .state import InvestigationState
+
+    try:
+        data = InvestigationState.load(inv.root).data
+    except (CraftError, OSError, ValueError):
+        data = {}
+    lines = ["===== recorded input data (craft data add) ====="]
+    if not data:
+        lines.append("(none recorded yet; how the inputs are built is stated only in the documents above, if at all)")
+    for did, rec in data.items():
+        lines.append(f"- {did}: {rec['path']}" + (f" — {rec['note']}" if rec.get("note") else ""))
+        lines.append(f"  derivation: {rec.get('derivation') or '(not described)'}")
+    return "\n".join(lines) + "\n"
 
 
 def build_round1_prompt(inv: InvestigationPaths, hid: str) -> tuple[str, str]:

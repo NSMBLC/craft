@@ -438,3 +438,46 @@ def test_an_investigation_with_nothing_registered_says_so(programme: Craft):
     typed(c, "/craft-approve --inv inv-p")
     why = board(c, "inv-p")["next"]["why"]
     assert why.startswith("no hypothesis is registered yet") and "every registered hypothesis" not in why
+
+
+@pytest.mark.checkpoint("9.18")
+def test_a_kill_still_lets_existing_evidence_be_judged(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    plan(c, inv, "run1", "description: one run feeding H1 and K1\ntests: [H1:C1, H1:C2]")
+    d = f"investigations/{inv}/experiments/run1/evidence"
+    e1 = ev(c, f"{d}/c1.json", "accuracy_gain", [1.9, 2.0, 2.1, 2.0, 1.95])
+    k1 = ev(c, f"{d}/k1.json", "pilot_loss", [6.0, 6.1, 5.9, 6.0, 6.05])
+    assert "C1 evidence, not judged" in c("status").out and "C2 —" in c("status").out
+    r = c("verdict", "run1", "--criterion", "K1", "--evidence", k1, "--inv", inv)
+    assert "KILL CRITERION K1 MET" in r.out and "still has no verdict" in r.out and "H1:C1 (run1:" in r.out, r.text
+    assert board(c)["next"]["who"] == "agent"
+    assert "SUPPORTED" in c("verdict", "run1", "--criterion", "H1:C1", "--evidence", e1, "--inv", inv).out
+    time.sleep(1.01)
+    late = ev(c, f"{d}/c1-late.json", "accuracy_gain", [1.9, 2.0, 2.1, 2.0, 1.95])
+    r = c("verdict", "run1", "--criterion", "H1:C1", "--evidence", late, "--inv", inv)
+    assert r.code != 0 and "produced after that" in r.err
+    assert board(c)["next"]["command"].startswith("/craft-close")
+    close(c)
+    assert any("H1:C1" in f["lineage"]["criterion"] for f in memory(c, "finding"))
+    qs = [q["question"] for q in memory(c, "open")]
+    assert any("run1 was run; judged K1, H1:C1; no verdict for H1:C2" in q for q in qs), qs
+
+
+@pytest.mark.checkpoint("9.19")
+def test_how_data_were_derived_reaches_the_referee(programme: Craft):
+    from craft.paths import InvestigationPaths
+    from craft.referee import build_round1_prompt
+
+    c = programme
+    inv = open_inv(c)
+    c.write("data/prices.csv", "date,spy\n2026-01-02,100\n")
+    r = c("data", "add", "data/prices.csv", "--id", "prices", "--inv", inv)
+    assert "No derivation recorded" in r.out
+    how = "US-listed funds converted to CAD at the daily rate, so unhedged"
+    assert c("data", "add", "data/prices.csv", "--id", "prices", "--inv", inv, "--derivation", how).code == 0
+    r = c("data", "add", "data/prices.csv", "--id", "prices", "--inv", inv, "--derivation", "hedged")
+    assert r.code != 0 and "not rewritten" in r.err
+    assert how in c("data", "list", "--inv", inv).out
+    _, user = build_round1_prompt(InvestigationPaths(c.root / "investigations" / inv), "H1")
+    assert "recorded input data" in user and how in user

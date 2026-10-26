@@ -53,6 +53,7 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
         routed[kind].append(rec["id"])
 
     hyps = {h.id: h for h in registry.all_hypotheses(inv, state)}
+    waiting = registry.unjudged_evidence(inv, state)
     for v in state.verdicts:
         if v.label.startswith("kill-"):
             continue  # kill checks are not claims; a fired kill is routed below
@@ -99,9 +100,12 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
                               "context": "drafted but never registered by review"})
         elif h.status == "registered" and h.untested:
             why = registry.not_tested_reason(inv, state, h)
+            have = {k: v for k, v in waiting.items() if k.split(":")[0] == h.id}
             put("open", "Q", {"question": f"untested {h.id}: {h.claim} [{', '.join(h.untested)} never judged]",
                               **_tags(h, h.post_hoc), "context": f"registered {h.rec.registered_at}; "
-                              + (f"not tested by decision ({why})" if why else "no verdict before closure")})
+                              + (f"not tested by decision ({why})" if why else "no verdict before closure")
+                              + (f"; evidence exists but was not judged: {registry.unjudged_text(have)}" if have else ""),
+                              **({"unjudged_evidence": [f"{arch}/{rel}" for v in have.values() for _, rel in v]} if have else {})})
 
     for e in registry.all_experiments(inv, state):
         src = {"origin": str(e.plan.get("origin") or "researcher"), "derived_from": str(e.plan.get("derived_from") or "")}
@@ -110,7 +114,13 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
                                      **src, "files": [f"{arch}/{f}" for f in e.explored],
                                      "context": "completed exploratory work; it can inform designs but never backs a criterion"})
         elif e.status in ("planned", "run") and e.description:
-            put("open", "Q", {"question": f"experiment {e.name} was {'planned but never run' if e.status == 'planned' else 'run but not judged'}: {e.description}",
+            if e.status == "planned":
+                what = "planned but never run"
+            elif e.verdicts:
+                what = f"run; judged {', '.join(e.verdicts)}; no verdict for {', '.join(t for t in e.tests if t not in e.verdicts)}"
+            else:
+                what = "run but not judged"
+            put("open", "Q", {"question": f"experiment {e.name} was {what}: {e.description}",
                               **src, "context": f"tests {', '.join(e.tests) or 'nothing'}"})
 
     for q in registry.parked_questions(inv, state):

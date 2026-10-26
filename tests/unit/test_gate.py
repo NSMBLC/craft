@@ -153,3 +153,46 @@ def test_bash_screen_copy_reads_sources_writes_destination(tmp_path):
     assert not decide_bash(prog, "cp -t archive/inv-1 notes/x.json", root).allow
     assert not decide_bash(prog, "cp a.txt b.txt > memory/findings.jsonl", root).allow
     assert not decide_bash(prog, "mv archive/inv-1/a.pdf notes/", root).allow  # mv removes its source
+    for cmd in ('for f in archive/inv-1/literature/*.pdf; do cp "$f" notes/lit/; done',
+                "find archive/inv-1/literature -name '*.pdf' -exec cp {} notes/lit/ \\;",
+                "ls archive/inv-1/literature/*.pdf | xargs -I {} cp {} notes/lit/",
+                "ls archive/inv-1/*.pdf | xargs cp -t notes/lit",
+                "cd archive/inv-1 && cp literature/kim.pdf ../../notes/lit/",
+                "cp archive/inv-1/literature/kim.pdf notes/lit/ && ls archive/inv-1/literature"):
+        assert decide_bash(prog, cmd, root).allow, cmd
+    for cmd in ('for f in archive/inv-1/*.md; do rm "$f"; done', "ls archive/inv-1/*.md | xargs rm",
+                "cd archive/inv-1 && rm verdict.md", "cd archive && echo x > inv-1/a.md",
+                "find archive/inv-1 -name '*.md' -exec rm {} \\;", "ls notes | xargs cp archive/inv-1",
+                "cp notes/a.md notes/b.md && mv notes/b.md archive/inv-1/"):
+        assert not decide_bash(prog, cmd, root).allow, cmd
+
+
+def test_bash_screen_reads_inline_python_and_heredocs(tmp_path):
+    root = tmp_path.resolve()
+    (root / "craft.yaml").write_text("version: 1\n")
+    (root / "archive").mkdir()
+    (root / "notes").mkdir()
+    prog = Programme(root)
+    allowed = [
+        "mkdir -p notes/lit && python3 - <<'EOF'\nimport yaml, shutil\nfrom pathlib import Path\n"
+        "src = Path('archive/inv-1/literature')\ndst = Path('notes/lit')\n"
+        "for s in yaml.safe_load(open(src / 'sources.yaml'))['sources']:\n"
+        "    shutil.copy2(src / s['file'], dst / Path(s['file']).name)\nEOF",
+        "python3 -c \"import json; d=json.load(open('archive/inv-1/x.json')); open('notes/o.json','w').write(str(d))\"",
+        "cat > notes/readme.md <<EOF\nwe will mv archive/inv-1/verdict.md later; craft approve\nEOF",
+        "uv run python - <<EOF\nprint(open('archive/inv-1/x.md').read().replace('a', 'b'))\nEOF",
+        "grep -ln accuracy archive/inv-1/experiments/*/verdict-*.md",
+        "echo x > notes/a.txt && cat craft.yaml",
+    ]
+    for cmd in allowed:
+        assert decide_bash(prog, cmd, root).allow, cmd
+    refused = [
+        "python3 - <<'EOF'\nopen('archive/inv-1/verdict.md', 'w').write('x')\nEOF",
+        "python3 -c \"import shutil; shutil.copy('notes/a.md', 'archive/inv-1/a.md')\"",
+        "python3 - <<'EOF'\nimport os, sys\nos.remove(sys.argv[1] if len(sys.argv) > 1 else 'archive/inv-1/x.md')\nEOF",
+        "bash <<'EOF'\nrm archive/inv-1/x.md\nEOF",
+        "python3 - <<'EOF'\nfrom pathlib import Path\nfor p in Path('archive/inv-1').glob('*.md'):\n    p.write_text('')\nEOF",
+        "bash <<'EOF'\ncraft approve\nEOF",
+    ]
+    for cmd in refused:
+        assert not decide_bash(prog, cmd, root).allow, cmd

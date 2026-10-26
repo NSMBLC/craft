@@ -33,8 +33,8 @@ HARMLESS_REDIRECT_RE = re.compile(
 # never a path that happens to start with "a" or "w" (open('archive/...') is a read).
 _WRITE_MODE = r"""['"][rbt]*[wax+][rwabxt+]*['"]"""
 MUTATION_RE = re.compile(
-    r"(?<![<>])>{1,2}(?!>)|\btee\b|\bmv\b|\bcp\b|\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
-    r"\btruncate\b|\bln\b|\bmkdir\b|\brmdir\b|\bpatch\b|\bgit\s+(checkout|restore|reset|clean|stash)\b|"
+    r"(?<![<>])>{1,2}(?!>)|(?<!-)\btee\b|(?<!-)\bmv\b|(?<!-)\bcp\b|(?<!-)\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
+    r"\btruncate\b|(?<!-)\bln\b|\bmkdir\b|\brmdir\b|\bpatch\b|\bgit\s+(checkout|restore|reset|clean|stash)\b|"
     rf"\bopen\([^)]*?,\s*(?:mode\s*=\s*)?{_WRITE_MODE}|\.open\(\s*(?:mode\s*=\s*)?{_WRITE_MODE}|"
     r"\bwrite_text\b|\bwrite_bytes\b|\bshutil\b|\bos\.(remove|unlink|rename|replace|chmod)\b|\bunlink\b"
 )
@@ -233,44 +233,157 @@ _SEPARATORS = {";", "&&", "||", "|", "&", "\n"}
 _COPY_PROGRAMS = {"cp", "rsync"}  # read every source, write only the destination
 
 
-def _write_candidates(command: str) -> list[str]:
-    """Tokens that may name a file the command writes. For `cp`/`rsync` only the destination (the last
-    argument, or `-t DIR`) and redirect targets count: their sources are only read."""
+_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "{", "(", "!", "sudo", "command", "env", "time", "nice"}
+_REDIRECT = re.compile(r"\d*>{1,2}|&>")
+
+
+def _copy_dest(words: list[str]) -> str:
+    """The destination of a `cp`/`rsync` argument list: `-t DIR`, or the last operand."""
+    args, dest, skip = [], None, False
+    for i, t in enumerate(words):
+        if skip:
+            skip = False
+            continue
+        if t in ("-t", "--target-directory") and i + 1 < len(words):
+            dest, skip = words[i + 1], True
+        elif t.startswith("--target-directory="):
+            dest = t.split("=", 1)[1]
+        elif _REDIRECT.fullmatch(t) or t == "<":
+            skip = True
+        elif not t.startswith("-"):
+            args.append(t)
+    return dest or (args[-1] if args else "")
+
+
+_HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
+_PYTHONS = re.compile(r"python(3(\.\d+)?)?")
+
+
+def _split_heredocs(command: str) -> tuple[str, dict[str, str]]:
+    """Take each here-document's text out of the command, leaving a placeholder word where it was fed in."""
+    lines, out, bodies, i = command.split("\n"), [], {}, 0
+    while i < len(lines):
+        line, pending = lines[i], []
+
+        def repl(m: re.Match) -> str:
+            key = f"__craft_heredoc_{len(bodies) + len(pending)}__"
+            pending.append((key, m.group(2)))
+            return f" {key} "
+
+        out.append(_HEREDOC_RE.sub(repl, line))
+        i += 1
+        for key, delim in pending:
+            body = []
+            while i < len(lines) and lines[i].strip() != delim:
+                body.append(lines[i])
+                i += 1
+            i += 1  # the delimiter line
+            bodies[key] = "\n".join(body)
+    return "\n".join(out), bodies
+
+
+_RUNS_TEXT = re.compile(r"\b(?:bash|sh|zsh|python[\d.]*|node|ruby|perl|craft)\b")
+
+
+def _executed_text(command: str) -> str:
+    """The command with the text of here-documents that are only data (`cat <<EOF`) left out; a
+    here-document fed to a shell or an interpreter is kept, since it runs."""
+    stripped, bodies = _split_heredocs(command)
+    keep = []
+    for line in stripped.split("\n"):
+        for key in re.findall(r"__craft_heredoc_\d+__", line):
+            if _RUNS_TEXT.search(line.split(key)[0]):
+                keep.append(bodies[key])
+    return "\n".join([stripped, *keep])
+
+
+def _python_code(words: list[str], bodies: dict[str, str]) -> str | None:
+    """The program text of `python -c CODE` or `python - <<EOF`, or None for any other command."""
+    if not words or not _PYTHONS.fullmatch(PurePosixPath(words[0]).name):
+        return None
+    if "-c" in words[:-1]:
+        return words[words.index("-c") + 1]
+    return next((bodies[w] for w in words if w in bodies), None)
+
+
+def _write_candidates(command: str, base: Path) -> list[tuple[str, Path]]:
+    """(token, directory it resolves against) for every file the command may write.
+
+    Each part of the command (split at `;`, `&&`, `||`, `|`) is judged on its own: a part that does not
+    write (`ls`, `cd`, a `for ... in` list, `grep`) names no write target, and `cd` only moves the base.
+    `cp`/`rsync` (also after `do`, `xargs` or `find -exec`) write only their destination. A writing part
+    whose target is a loop variable or comes from `xargs` cannot be read from its own words, so then
+    every path in the command counts, as it always did. Inline Python (`-c` or a here-document) is read
+    from its syntax tree (pyscan); a shell here-document is screened as a command; any other
+    here-document is text."""
+    from . import pyscan
+
+    command, bodies = _split_heredocs(command)
     try:
         lex = shlex.shlex(command, posix=True, punctuation_chars=True)
         lex.whitespace_split = True
         tokens = list(lex)
     except ValueError:
-        return command.split()
-    out: list[str] = []
+        return [(t, base) for t in command.split()]
+    out: list[tuple[str, Path]] = []
     seg: list[str] = []
+    opaque = False  # a write whose target is not in its own words
     for tok in tokens + [";"]:
         if tok not in _SEPARATORS:
             seg.append(tok)
             continue
+        redirects = [seg[i + 1] for i, t in enumerate(seg[:-1]) if _REDIRECT.fullmatch(t)]
+        out += [(t, base) for t in redirects]
         words = [t for t in seg if not re.fullmatch(r"\w+=.*", t)]  # leading VAR=value assignments
-        while words and words[0] in ("sudo", "command", "env", "time", "nice"):
+        while words and words[0] in _KEYWORDS:
             words = words[1:]
-        if words and PurePosixPath(words[0]).name in _COPY_PROGRAMS:
-            redirect_targets = [seg[i + 1] for i, t in enumerate(seg[:-1]) if re.fullmatch(r"\d*>{1,2}|&>", t)]
-            args, dest, skip = [], None, False
-            for i, t in enumerate(words[1:], start=1):
-                if skip:
-                    skip = False
-                    continue
-                if t in ("-t", "--target-directory") and i + 1 < len(words):
-                    dest, skip = words[i + 1], True
-                elif t.startswith("--target-directory="):
-                    dest = t.split("=", 1)[1]
-                elif re.fullmatch(r"\d*>{1,2}|&>|<", t):
-                    skip = True
-                elif not t.startswith("-"):
-                    args.append(t)
-            out += [dest or (args[-1] if args else "")] + redirect_targets
-        else:
-            out += seg
+        if words[:2] == ["uv", "run"]:
+            words = words[2:]
+        code = _python_code(words, bodies)
+        if code is not None:
+            found = pyscan.write_targets(code)
+            out += [(t, base) for t in (found if found is not None else code.split())]
+            seg = []
+            continue
+        if words and PurePosixPath(words[0]).name in ("bash", "sh", "zsh") and any(w in bodies for w in words):
+            out += _write_candidates(next(bodies[w] for w in words if w in bodies), base)
+            seg = []
+            continue
+        words = [w for w in words if w not in bodies]
+        piped = False  # xargs appends its input after the words, unless -I places it
+        if words and words[0] == "xargs":
+            piped, words = True, words[1:]
+            while words and words[0].startswith("-"):
+                if words[0] == "-I" or words[0].startswith("-I"):
+                    piped = False
+                words = words[2:] if words[0] in ("-I", "-n", "-P", "-L", "-d", "-s") else words[1:]
+        prog_name = PurePosixPath(words[0]).name if words else ""
+        if prog_name == "find" and any(w in ("-exec", "-execdir") for w in words):
+            i = next(i for i, w in enumerate(words) if w in ("-exec", "-execdir"))
+            body = [w for w in words[i + 1:] if w not in ("{}", "+")]
+            if body and PurePosixPath(body[0]).name in _COPY_PROGRAMS:
+                out.append((_copy_dest(body[1:]), base))
+            elif MUTATION_RE.search(" ".join(body)):
+                opaque = True
+        elif prog_name == "cd":
+            target = words[1] if len(words) > 1 else ""
+            if target and not target.startswith(("-", "$", "~")):
+                base = Path(target) if Path(target).is_absolute() else base / target
+        elif prog_name in _COPY_PROGRAMS:
+            dest = _copy_dest(words[1:])
+            if (piped and "-t" not in words and not any(w.startswith("--target-directory") for w in words)) or dest.startswith("$"):
+                opaque = True
+            out.append((dest, base))
+        elif MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", " ".join(w for w in words if not _REDIRECT.fullmatch(w)
+                                                                       and w not in redirects))):
+            if piped or any("$" in w for w in words[1:]):
+                opaque = True
+            out += [(t, base) for t in words]
         seg = []
-    return [t for t in out if t]
+    if opaque:
+        out += [(t, base) for t in tokens if t not in _SEPARATORS and t not in bodies]
+    return [(t, b) for t, b in out if t]
+
 
 def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decision:
     """Screen a shell command the agent wants to run.
@@ -280,7 +393,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     the programme is put through the write gate.
     This is a heuristic layer; recorded hashes (`craft verify`) are the backstop.
     """
-    if HUMAN_ONLY_RE.search(command):
+    if HUMAN_ONLY_RE.search(_executed_text(command)):
         return Decision.deny(
             "that `craft` command is a researcher decision (approve / reject / close / reopen / resolve / correct). "
             "Ask the researcher to type it as a slash command (e.g. `/craft-approve`); "
@@ -290,10 +403,8 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     mutation = MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", command))
     if not mutation:
         return Decision.ok()
-    base = cwd or Path.cwd()
-    tokens = _write_candidates(command)
     seen: set[str] = set()
-    for tok in tokens:
+    for tok, base in _write_candidates(command, cwd or Path.cwd()):
         tok = tok.strip("'\"`;,()")
         if not tok or tok.startswith("-") or "=" in tok and not ("/" in tok or tok.endswith(".md")):
             continue
