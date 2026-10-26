@@ -140,7 +140,7 @@ def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via:
         lines.append(f"  exploratory work recorded: {', '.join(explored)}")
     if pending:
         lines.append(f"  experiments not finished: {', '.join(pending)}")
-    pq = registry.parked_questions(inv)
+    pq = registry.parked_questions(inv, state)
     if pq:
         n_ans = sum(q.answered for q in pq)
         lines.append(f"  questions.md: {len(pq) - n_ans} open, {n_ans} answered")

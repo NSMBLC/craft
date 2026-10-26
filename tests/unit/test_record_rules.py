@@ -60,3 +60,12 @@ def test_unreadable_evidence_counts_as_bearing(tmp_path):
     assert registry.evidence_for(inv, s, "H1") == []
     (d / "raw.bin").write_bytes(b"\x00\x01")
     assert registry.evidence_for(inv, s, "H1") == ["experiments/e/evidence/raw.bin"]
+
+
+def test_outcome_branch_that_points_elsewhere_is_flagged(tmp_path):
+    from craft.artifacts.hypothesis import validate_hypothesis
+    p = tmp_path / "H1.md"
+    p.write_text("---\nclaim: c\noutcome_rule:\n  supported: every criterion passes\n  refuted: Branch (a) of the mapping in supported\n"
+                 "  inconclusive: anything else\n---\n")
+    found = [f for f in validate_hypothesis(p).findings if f.field == "outcome_rule.refuted"]
+    assert found and found[0].severity == "warning" and "state the condition in words" in found[0].problem

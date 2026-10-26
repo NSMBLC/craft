@@ -222,6 +222,26 @@ def all_experiments(inv: InvestigationPaths, state: InvestigationState) -> list[
     return [e for e in views if e.has_plan or e.evidence or e.verdicts or e.explored]
 
 
+def not_tested_reason(inv: InvestigationPaths, state: InvestigationState, h: HypView,
+                      exps: list[ExpView] | None = None) -> str:
+    """Why a registered hypothesis with unjudged criteria is not pending work, or "" when it is.
+
+    Deferred by the researcher's decision (`deferred: <reason>` in its file), or every experiment that
+    tests it was abandoned. Either way it closes as an open question; planning a new experiment (or
+    removing `deferred`) makes it pending again. A hypothesis with no experiment yet is pending work.
+    """
+    if h.status != "registered" or not h.untested:
+        return ""
+    if str(h.fm.get("deferred") or "").strip():
+        return f"deferred: {str(h.fm['deferred']).strip()}"
+    testing = [e for e in (exps if exps is not None else all_experiments(inv, state))
+               if any(t.split(":")[0] == h.id for t in e.tests)]
+    if testing and all(e.status == "abandoned" for e in testing):
+        names = "; ".join(f"{e.name} ({e.abandoned})" for e in testing)
+        return f"experiments abandoned: {names}"
+    return ""
+
+
 def evidence_for(inv: InvestigationPaths, state: InvestigationState, hid: str) -> list[str]:
     """Evidence files that bear on `hid`'s own criteria; once one exists, criteria changes are post-hoc.
 
@@ -283,11 +303,17 @@ class Question:
     pointer: str = ""  # what answered it: a verdict file, experiment, source (lit:<key>) or note
 
 
-def parked_questions(inv: InvestigationPaths) -> list[Question]:
-    """Bullets in questions.md. `answered: <pointer>` (or a checked box) marks one answered;
-    on closure answered questions are recorded as answered, the rest as open questions."""
+def parked_questions(inv: InvestigationPaths, state: InvestigationState | None = None) -> list[Question]:
+    """Bullets in questions.md. `answered: <pointer>` (or a checked box) marks one answered, and so does a
+    limitation recorded with `--question` (given `state`); on closure answered questions are recorded as
+    answered, the rest as open questions."""
     if not inv.questions.exists():
         return []
+    settled = {}
+    for v in (state.verdicts if state is not None else []):
+        for lim in v.limitations:
+            if lim.get("question"):
+                settled[lim["question"]] = inv.rel(inv.verdict_limitations(v.experiment, v.criterion))
     _, body = split_frontmatter(inv.questions.read_text(encoding="utf-8"))
     out = []
     for line in body.splitlines():
@@ -298,13 +324,16 @@ def parked_questions(inv: InvestigationPaths) -> list[Question]:
         a = _ANSWERED_RE.search(text)
         if a:
             text, pointer = text[: a.start()].strip(), a.group(1).strip()
-        out.append(Question(text, bool(a) or m.group(1) in ("x", "X"), pointer))
+        q = Question(text, bool(a) or m.group(1) in ("x", "X"), pointer)
+        if not q.answered and text in settled:
+            q.answered, q.pointer = True, settled[text]
+        out.append(q)
     return out
 
 
-def questions(inv: InvestigationPaths) -> list[str]:
+def questions(inv: InvestigationPaths, state: InvestigationState | None = None) -> list[str]:
     """The parked questions still open."""
-    return [q.text for q in parked_questions(inv) if not q.answered]
+    return [q.text for q in parked_questions(inv, state) if not q.answered]
 
 
 # ------------------------------------------------------------------ whose turn
@@ -358,7 +387,9 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
     ready = [h.id for h in hyps if h.status == "draft" and h.complete]
     if ready:
         return ("agent", "craft review", f"draft(s) {', '.join(ready)} are complete; request the independent review")
-    running = [h for h in hyps if h.status == "registered" and h.untested]
+    exps = all_experiments(inv, state)
+    parked = {h.id: r for h in hyps if (r := not_tested_reason(inv, state, h, exps))}
+    running = [h for h in hyps if h.status == "registered" and h.untested and h.id not in parked]
     if running:
         what = "; ".join(f"{h.id} ({', '.join(h.untested)})" for h in running)
         return ("agent", "craft verdict <exp> --criterion <H:C> --evidence <file>",
@@ -368,9 +399,11 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
                 "no hypotheses yet: draft one (or several, or park one-line ideas) in hypotheses/")
     drafts = [h.id for h in hyps if h.status == "draft"]
     tail = f"; draft ideas parked: {', '.join(drafts)}" if drafts else ""
+    if parked:
+        tail += "; not being tested (each closes as an open question): " + "; ".join(f"{k} ({v})" for k, v in parked.items())
     return ("researcher", "/craft-close",
-            "every registered hypothesis has its verdicts" + tail + ". The researcher picks what to pursue next "
-            "(the agent drafts it), or closes the investigation")
+            "every registered hypothesis being tested has its verdicts" + tail + ". The researcher picks what to "
+            "pursue next (the agent drafts it), or closes the investigation")
 
 
 def blocked_reason(inv: InvestigationPaths, state: InvestigationState) -> str:
@@ -399,9 +432,13 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
     if state.phase == Phase.FRAMING:
         return "\n".join(lines)
     hyps = all_hypotheses(inv, state)
+    exps = all_experiments(inv, state)
     lines.append("    Hypotheses:" if hyps else "    Hypotheses: none yet")
     for h in hyps:
         status = h.status
+        parked = not_tested_reason(inv, state, h, exps)
+        if parked:
+            status = "registered (not being tested)"
         if status == "draft" and not h.complete:
             status = "draft (idea)" if h.idea else "draft (incomplete)"
         if status == "in review":
@@ -410,8 +447,9 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         crits = ", ".join(f"{c} {h.criteria_labels.get(c, '—')}" + (" (limitation)" if c in limited else "")
                           for c in h.criteria) if h.rec.registered_sha256 else ""
         flags = []
-        if h.status in OUTCOMES and not h.rule_is_mechanical:
-            flags.append(f"label by CRAFT roll-up; registered rule for {h.status}: \"{_short(h.outcome_rule.get(h.status, ''), 50)}\"")
+        if parked:
+            flags.append(f"{parked}; closes as an open question unless a new experiment is planned"
+                         + (" or `deferred` is removed" if parked.startswith("deferred") else ""))
         if h.post_hoc:
             flags.append("criteria changed after registration (post-hoc)")
         elif h.changed_since_registration:
@@ -420,7 +458,9 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         lines.append(f"      {h.id:<6} {status:<14} {_short(h.claim)}")
         detail = "; ".join(x for x in [crits, *flags, f"origin {src}"] if x)
         lines.append(f"             {detail}")
-    exps = all_experiments(inv, state)
+        if h.status in OUTCOMES and not h.rule_is_mechanical:  # the rule branch in full: it governs, the label is a roll-up
+            lines.append(f"             label by CRAFT roll-up; the registered rule for {h.status} says: "
+                         f"\"{' '.join(str(h.outcome_rule.get(h.status, '')).split())}\"")
     if exps:
         lines.append("    Experiments:")
     for e in exps:
@@ -435,7 +475,7 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         lines.append(f"      {e.name:<14} {e.status:<9} {extra}")
     if state.data:
         lines.append("    Input data: " + ", ".join(f"{d} ({r['path']}, sha256 {r['sha256'][:8]})" for d, r in state.data.items()))
-    pq = parked_questions(inv)
+    pq = parked_questions(inv, state)
     qs = [q for q in pq if not q.answered]
     done = [q for q in pq if q.answered]
     if pq:
@@ -465,13 +505,14 @@ def public(inv: InvestigationPaths, state: InvestigationState) -> dict:
                 "registered_at": h.rec.registered_at, "criteria": h.criteria_labels, "post_hoc": h.post_hoc,
                 "origin": h.origin, "derived_from": h.derived_from,
                 "label_basis": "rule" if h.rule_is_mechanical else ("roll-up" if h.status in OUTCOMES else None),
+                "not_tested": not_tested_reason(inv, state, h) or None,
             } for h in all_hypotheses(inv, state)
         },
         "experiments": {e.name: {"status": e.status, "tests": e.tests, "verdicts": e.verdicts, "evidence": len(e.evidence),
                                  "exploratory": e.exploratory, "exploratory_files": len(e.explored)}
                         for e in all_experiments(inv, state)},
-        "questions": questions(inv),
-        "answered_questions": [{"question": q.text, "pointer": q.pointer} for q in parked_questions(inv) if q.answered],
+        "questions": questions(inv, state),
+        "answered_questions": [{"question": q.text, "pointer": q.pointer} for q in parked_questions(inv, state) if q.answered],
         "verdicts": [v.model_dump() for v in state.verdicts],
         "kill": state.kill.model_dump(),
         "next": {"who": who, "command": cmd, "why": why},

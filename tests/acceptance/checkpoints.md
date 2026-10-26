@@ -57,3 +57,4 @@
 | 9.11 | test_a_parked_idea_validates_as_an_idea |
 | 9.12 | test_memory_is_not_repeated_within_a_session |
 | 9.13 | test_provenance_and_notes_never_touch_a_registration |
+| 9.14 | test_abandoned_or_deferred_hypotheses_are_not_pending_work |

@@ -72,6 +72,9 @@ inconclusive), every experiment (planned, run, done; an exploratory one counts a
 output), the open and answered questions, the recorded input data, and whose
 turn it is.
 
+A registered hypothesis whose experiments were all abandoned, or that you defer (`deferred: <reason>`),
+is shown as not being tested and will close as an open question; the board does not list it as work.
+
 The record stays true after the fact, too. A limitation found after a verdict is attached to it
 (`craft limitation`) without changing its label, and travels with it into memory. Input data that criteria
 depend on is recorded by hash (`craft data add`), so a changed snapshot is caught. A memory entry that

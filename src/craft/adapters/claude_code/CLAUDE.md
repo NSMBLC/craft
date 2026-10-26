@@ -16,10 +16,13 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
   (`craft validate` accepts it as an idea; `--full` lists what a draft needs); a full draft adds warrant,
   criteria, outcome rule, two or more rivals with discriminators, predictions and a power check. Fill in
   `origin: researcher|agent` and `derived_from:` (the verdict file, experiment, `lit:<key>` or question
-  that prompted it). To drop one, set `dropped: <reason>`. A criterion whose metric has no spread (exact
+  that prompted it). To drop one, set `dropped: <reason>`. When the researcher decides to hold a
+  registered hypothesis back (it stays registered and closes as an open question), set
+  `deferred: <reason>`; never set it on your own initiative. A criterion whose metric has no spread (exact
   computation on fixed inputs) says `deterministic: <why>` before review; evidence never declares it. If
   the outcome rule is exactly "all supported -> supported, any refuted -> refuted, else inconclusive",
   set `outcome_rule.mechanical: true`; otherwise CRAFT's label is shown as a roll-up next to the rule.
+  Write each outcome branch as a condition in words, not a pointer to another branch: it is quoted next to the label.
 - `experiments/<name>/plan.md`: `description:` and `tests: [H1:C1, H2]` (or `exploratory: true`),
   plus `origin`/`derived_from`; `abandoned: <reason>` to stop one. Status (planned, run, done) is derived;
   an exploratory experiment counts as run once `exploratory/` has output.
@@ -98,6 +101,7 @@ Never route around a refusal (no shell redirects, no editing state.json or setti
 - A limitation found after a verdict (the result holds for what was tested, but not for what others
   will read into it): `craft limitation <exp> --criterion H1:C1 --text "..." --source <where it was found>`.
   The verdict and its label stay; the limitation is shown with it everywhere, including memory.
+  If it settles a parked question, add `--question "<part of its text>"`; the question then shows as answered.
 - A memory entry that turned out wrong: never work around it. Show the researcher the entry and the
   evidence, and give them the command to type:
   `/craft-correct <entry-id> --note "what is wrong and what is true instead" --evidence <file>`.

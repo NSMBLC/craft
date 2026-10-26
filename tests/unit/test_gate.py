@@ -123,3 +123,19 @@ def test_bash_screen_matches_decision_subcommands_not_words(tmp_path):
                 'craft limitation exp1 --criterion H1:C1 --text "close to the threshold; correct only in simulation" --source x',
                 "grep -n approve docs/journeys.md"):
         assert decide_bash(prog, cmd, tmp_path).allow, cmd
+
+
+def test_bash_screen_reads_open_modes_not_paths(tmp_path):
+    from craft.gate import HARMLESS_REDIRECT_RE, MUTATION_RE
+
+    def writes(cmd):
+        return bool(MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", cmd)))
+
+    for cmd in ("python -c \"print(open('archive/x/verdict.md').read())\"",
+                "python -c \"json.load(open('investigations/i/experiments/e/evidence/a.json'))\"",
+                "python -c \"open('weights.csv', 'rb').read()\"", "python -c \"open(p, encoding='utf-8')\"",
+                "python -c \"Path('a.json').open()\""):
+        assert not writes(cmd), cmd
+    for cmd in ("python -c \"open('x.json', 'w')\"", "python -c \"open(p, mode='a')\"", "python -c \"open(p, 'r+')\"",
+                "python -c \"Path(p).open('wb')\"", "python -c \"open(p, 'x')\""):
+        assert writes(cmd), cmd

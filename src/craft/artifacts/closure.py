@@ -98,8 +98,10 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
             put("open", "Q", {"question": f"untested idea {h.id}: {h.claim}", **_tags(h, False),
                               "context": "drafted but never registered by review"})
         elif h.status == "registered" and h.untested:
+            why = registry.not_tested_reason(inv, state, h)
             put("open", "Q", {"question": f"untested {h.id}: {h.claim} [{', '.join(h.untested)} never judged]",
-                              **_tags(h, h.post_hoc), "context": f"registered {h.rec.registered_at}; no verdict before closure"})
+                              **_tags(h, h.post_hoc), "context": f"registered {h.rec.registered_at}; "
+                              + (f"not tested by decision ({why})" if why else "no verdict before closure")})
 
     for e in registry.all_experiments(inv, state):
         src = {"origin": str(e.plan.get("origin") or "researcher"), "derived_from": str(e.plan.get("derived_from") or "")}
@@ -111,7 +113,7 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
             put("open", "Q", {"question": f"experiment {e.name} was {'planned but never run' if e.status == 'planned' else 'run but not judged'}: {e.description}",
                               **src, "context": f"tests {', '.join(e.tests) or 'nothing'}"})
 
-    for q in registry.parked_questions(inv):
+    for q in registry.parked_questions(inv, state):
         if q.answered:
             put("answered", "A", {"question": q.text, "answered_by": _archived(inv, arch, q.pointer),
                                   "context": "parked in questions.md and answered before closure"})

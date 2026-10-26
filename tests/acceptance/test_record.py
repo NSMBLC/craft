@@ -109,10 +109,13 @@ def test_limitation_travels_with_the_verdict(programme: Craft):
     vfile = c.root / "investigations" / inv / "experiments" / "exp1" / "verdict-H1-C1.md"
     before = vfile.read_text()
     c.write(f"investigations/{inv}/experiments/exp1/exploratory/hw-check.md", "the executable circuit falls to 1.4x")
+    c.write(f"investigations/{inv}/questions.md", "- does the gain survive on executable circuits?\n- unrelated?\n")
     r = c("limitation", "exp1", "--criterion", "H1:C1", "--inv", inv, "--text",
           "simulation computed the mixer exactly; the executable circuit falls below the threshold",
-          "--source", "experiments/exp1/exploratory/hw-check.md")
-    assert r.code == 0 and "stays SUPPORTED" in r.out, r.text
+          "--source", "experiments/exp1/exploratory/hw-check.md", "--question", "executable circuits")
+    assert r.code == 0 and "stays SUPPORTED" in r.out and "now shows as answered" in r.out, r.text
+    assert board(c)["answered_questions"] == [{"question": "does the gain survive on executable circuits?",
+                                               "pointer": "experiments/exp1/verdict-H1-C1.limitations.md"}]
     assert vfile.read_text() == before  # the verdict itself never changes
     lim = c.root / "investigations" / inv / "experiments" / "exp1" / "verdict-H1-C1.limitations.md"
     assert c.hook("Edit", file_path=str(lim), old_string="a", new_string="b").code == 2
@@ -206,6 +209,10 @@ def test_deterministic_metric_is_declared_at_registration(programme: Craft):
     assert r.code != 0 and "Everything missing" in r.err
     assert "uncertainty for 'accuracy_gain'" in r.err and "seeds: missing" in r.err and "data_id: missing" in r.err
     assert "declared on the criterion (`deterministic: <why>`) before registration" in r.err
+    # the old route, a zero-width interval, still works, and the verdict says what it is
+    e = ev(c, f"investigations/{inv}/experiments/exp1/evidence/c1b.json", "accuracy_gain", None, value=2.0, ci=[2.0, 2.0])
+    r = c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", e, "--inv", inv)
+    assert r.code == 0 and "zero-width interval given; the criterion is not registered as deterministic" in r.out, r.text
     # C2 was registered as deterministic: one value suffices, and the verdict says so instead of an interval
     e = ev(c, f"investigations/{inv}/experiments/exp1/evidence/c2.json", "latency_ratio", None, value=1.1)
     r = c("verdict", "exp1", "--criterion", "H1:C2", "--evidence", e, "--inv", inv)
@@ -321,3 +328,28 @@ def test_provenance_and_notes_never_touch_a_registration(programme: Craft):
     # a judged field does count
     h.write_text(h.read_text().replace("paired comparison across seeds", "paired t-test across seeds"))
     assert "edited since registration" in c("status").out
+
+
+@pytest.mark.checkpoint("9.14")
+def test_abandoned_or_deferred_hypotheses_are_not_pending_work(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    plan(c, inv, "noisy", "description: long noisy simulation\ntests: [H1]")
+    assert board(c)["next"]["who"] == "agent"
+    plan(c, inv, "noisy", "description: long noisy simulation\ntests: [H1]\nabandoned: a noise-free gate made it irrelevant")
+    b = board(c)
+    assert b["next"]["command"] == "/craft-close" and "not being tested" in b["next"]["why"]
+    assert b["hypotheses"]["H1"]["not_tested"].startswith("experiments abandoned: noisy")
+    out = c("status").out
+    assert "registered (not being tested)" in out and "closes as an open question unless a new experiment is planned" in out
+    # a new experiment makes it pending again; a decision to defer parks it with its reason
+    plan(c, inv, "noisy2", "description: rerun at the new gate\ntests: [H1]")
+    assert board(c)["next"]["who"] == "agent"
+    h = c.root / "investigations" / inv / "hypotheses" / "H1.md"
+    h.write_text(h.read_text().replace("claim:", "deferred: QPU time reserved for November\nclaim:", 1))
+    b = board(c)
+    assert b["hypotheses"]["H1"]["status"] == "registered" and b["hypotheses"]["H1"]["not_tested"] == "deferred: QPU time reserved for November"
+    assert b["next"]["command"] == "/craft-close" and "edited since registration" not in c("status").out
+    close(c)
+    q = next(x for x in memory(c, "open") if x["question"].startswith("untested H1"))
+    assert "not tested by decision (deferred: QPU time reserved for November)" in q["context"]

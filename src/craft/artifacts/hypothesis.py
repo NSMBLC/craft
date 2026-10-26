@@ -61,6 +61,9 @@ def validate_hypothesis(path: Path) -> Validation:
         for k in REQUIRED_OUTCOMES:
             if not nonempty(outcome.get(k)):
                 v.error(f"outcome_rule.{k}", "missing")
+            elif re.search(r"\b(branch|see|as (?:in|per|above|below)|mapping in)\b", str(outcome.get(k)), re.I):
+                v.warn(f"outcome_rule.{k}", "refers elsewhere; state the condition in words, because the board and "
+                       "memory quote this branch next to the label")
         if "mechanical" in outcome and not isinstance(outcome.get("mechanical"), bool):
             v.error("outcome_rule.mechanical", "true or false: true says the rule is exactly CRAFT's roll-up "
                     "(all criteria supported -> supported; any refuted -> refuted; otherwise inconclusive)")

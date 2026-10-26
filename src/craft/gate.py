@@ -29,10 +29,14 @@ HUMAN_ONLY_RE = re.compile(
 HARMLESS_REDIRECT_RE = re.compile(
     r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null|<[^<>\s]+@[^<>\s]+>|[-=]>"
 )
+# A file-open mode that writes (w, a, x or +), as a whole quoted string: only the mode argument counts,
+# never a path that happens to start with "a" or "w" (open('archive/...') is a read).
+_WRITE_MODE = r"""['"][rbt]*[wax+][rwabxt+]*['"]"""
 MUTATION_RE = re.compile(
     r"(?<![<>])>{1,2}(?!>)|\btee\b|\bmv\b|\bcp\b|\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
     r"\btruncate\b|\bln\b|\bmkdir\b|\brmdir\b|\bpatch\b|\bgit\s+(checkout|restore|reset|clean|stash)\b|"
-    r"\bopen\([^)]*['\"][wa]|\bwrite_text\b|\bwrite_bytes\b|\bshutil\b|\bos\.(remove|unlink|rename|replace|chmod)\b|\bunlink\b"
+    rf"\bopen\([^)]*?,\s*(?:mode\s*=\s*)?{_WRITE_MODE}|\.open\(\s*(?:mode\s*=\s*)?{_WRITE_MODE}|"
+    r"\bwrite_text\b|\bwrite_bytes\b|\bshutil\b|\bos\.(remove|unlink|rename|replace|chmod)\b|\bunlink\b"
 )
 
 

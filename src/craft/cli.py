@@ -853,6 +853,8 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
         "created": now_iso(),
         "kill_triggered": {"criterion": killed[0]["id"], "condition": killed[0]["condition"], "observed": killed[1].point} if killed else None,
     }
+    if m.source == "ci" and m.ci_low == m.ci_high:
+        vfm["uncertainty_note"] = "zero-width interval given; the criterion is not registered as deterministic"
     body = [f"# Verdict — {experiment} / {key}: **{label.upper()}**", "",
             f"Criterion {key} (as registered {hv.rec.registered_at}): {m.metric} {op} {thr} under: {crit.get('conditions')}",
             f"Observed: {_observed(m)} — {rationale}", "",
@@ -860,6 +862,8 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
             f"Reproducibility: seeds {seeds}; data {data_ids}; env v{state.env.version} ({(state.env.lock_sha256 or '')[:12]}); "
             f"hypothesis {hid} as registered ({hv.rec.registered_sha256[:12]})"]
     body += _data_lines(state, data_ids, data_records)
+    if vfm.get("uncertainty_note"):
+        body += ["", f"NOTE: {vfm['uncertainty_note']} (the interval was supplied, not estimated)."]
     if post_hoc:
         body += ["", "POST-HOC: " + post_hoc["note"]]
     if links:
@@ -873,7 +877,8 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     state.verdicts = [v for v in state.verdicts if not (v.experiment == experiment and v.criterion == key)]
     state.verdicts.append(VerdictRef(experiment=experiment, criterion=key, label=label, file=rel_v, when=now_iso(),
                                      post_hoc=bool(post_hoc and post_hoc.get("changed"))))
-    echo(f"Verdict for {key} ({experiment}): {label.upper()} — {rationale}. Written to {rel_v}.")
+    echo(f"Verdict for {key} ({experiment}): {label.upper()} — {rationale}. Written to {rel_v}."
+         + (f" NOTE: {vfm['uncertainty_note']}." if vfm.get("uncertainty_note") else ""))
     if post_hoc:
         echo("POST-HOC: " + post_hoc["note"])
     if killed:
@@ -895,6 +900,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
 def limitation(experiment: str, criterion: str = typer.Option(..., "--criterion", help="The judged criterion, e.g. H1:C1."),
                text: str = typer.Option(..., "--text", help="What the verdict does not show, in one or two sentences."),
                source: str = typer.Option(..., "--source", help="Where it was found: a file in the investigation, lit:<key>, or a note."),
+               question: Optional[str] = typer.Option(None, "--question", help="The parked question in questions.md it settles (its text, or a unique part of it)."),
                inv_id: Optional[str] = INV_OPT) -> None:
     """Attach a limitation found after a verdict. The verdict and its label never change; the limitation
     travels with it to the board, closure, memory, recall and explain."""
@@ -916,14 +922,22 @@ def limitation(experiment: str, criterion: str = typer.Option(..., "--criterion"
         if not (inv.root / src_path).exists() and not (prog.root / src_path).exists():
             raise CraftError(f"--source {source}: no such file in the investigation or programme")
     entry = {"text": text, "source": source, "when": now_iso()}
+    if question:
+        hits = [q for q in registry.parked_questions(inv) if question.strip().lower() in q.text.lower()]
+        if len(hits) != 1:
+            listed = "; ".join(q.text for q in registry.parked_questions(inv)) or "none"
+            raise CraftError(f"--question must match exactly one question in questions.md ({len(hits)} match; parked: {listed})")
+        entry["question"] = hits[0].text
     ref.limitations.append(entry)
     lines = [f"# Limitations — {experiment} / {key}", "",
              f"The verdict ({ref.file}) and its label ({ref.label}) are unchanged. These were found afterwards:", ""]
-    lines += [f"- {e['when']}: {e['text']} (source: {e['source']})" for e in ref.limitations]
+    lines += [f"- {e['when']}: {e['text']} (source: {e['source']})" + (f" — settles the question: {e['question']}" if e.get("question") else "")
+              for e in ref.limitations]
     _write_record(inv, state, inv.verdict_limitations(experiment, key), "\n".join(lines) + "\n")
     state.save(inv.root)
     echo(f"Limitation recorded on {key} ({experiment}); its label stays {ref.label.upper()}. It is shown with the verdict "
-         f"on the board, at closure, in memory, recall and `craft explain`. ({inv.rel(inv.verdict_limitations(experiment, key))})")
+         f"on the board, at closure, in memory, recall and `craft explain`. ({inv.rel(inv.verdict_limitations(experiment, key))})"
+         + (f" The question \"{entry['question']}\" now shows as answered by it." if question else ""))
 
 
 @app.command()
