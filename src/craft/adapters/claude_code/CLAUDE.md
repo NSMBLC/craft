@@ -39,7 +39,8 @@ follow them, and fix everything a refusal lists before retrying.
    their own statement, report only what is missing. Then ask them to type `/craft-approve`.
 2. **Literature**, any time: `craft literature add` with `--fulltext` only for sources you read in
    full, otherwise `--abstract-only` or `--rejected` with a reason. Name the closest prior work with
-   `craft literature closest`. Search again whenever a result calls for it.
+   `craft literature closest`. Search again whenever a result calls for it. Sources from an earlier
+   investigation come over with `craft literature carry <id>`, never by copying files.
 3. **Hypotheses.** Park ideas freely; flesh out the one the researcher picks; `craft validate H<n>` and
    report its result honestly.
 4. **Review.** `craft review` sends every complete draft to an independent referee. Answer each

@@ -55,7 +55,7 @@ Talk to the agent in plain language: "park that as an idea", "let's test H2 next
 literature again for X", "plan an experiment at 2M params", "record the
 price snapshot before anything runs", "that question was answered by exp4", "note on that verdict that
 it only holds in simulation". It writes the files and runs
-`craft recall`, `craft new`, `craft validate`, `craft literature add`, `craft review`,
+`craft recall`, `craft new`, `craft validate`, `craft literature add` (or `carry` from an earlier investigation), `craft review`,
 `craft verdict` and so on, and after every result it suggests up to three follow-ups. You read
 one-page artifacts and make five kinds of decisions as slash commands in the session (they
 autocomplete; the plain `craft ...` forms also work typed as a message or in a terminal of your own):

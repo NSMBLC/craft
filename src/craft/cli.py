@@ -17,7 +17,7 @@ from . import decisions, envlock, hooks, registry
 from . import memory as mem
 from .artifacts import review as rv
 from .artifacts.hypothesis import DESIGN_FIELDS, criteria_table, is_idea, validate_hypothesis
-from .artifacts.literature import add_source, lint_priority_claims, load_sources, validate_literature
+from .artifacts.literature import add_source, carry_sources, lint_priority_claims, load_sources, validate_literature
 from .artifacts.plan import validate_plan
 from .artifacts.problem import kill_criteria, validate_problem
 from .artifacts.verdict import compare, extract, label_for, load_evidence, missing_fields, render_verdict
@@ -415,6 +415,28 @@ def lit_add(key: str, title: str = typer.Option(..., "--title"),
     what = {"used": "used (read in full)", "abstract-only": "abstract-only (citable for context; never backs a claim)",
             "rejected": "rejected (consulted and set aside)"}[entry["status"]]
     echo(f"Added {key} as {what}.")
+
+
+@lit_app.command("carry")
+def lit_carry(source_inv: str = typer.Argument(..., help="The investigation to carry sources from (archived or open)."),
+              key: list[str] = typer.Option([], "--key", help="A source to carry (repeat); default: all of them."),
+              inv_id: Optional[str] = INV_OPT) -> None:
+    """Carry sources over from another investigation: records, full texts (hash-checked) and where they came from."""
+    prog, inv, state = _ctx(inv_id)
+    state.require_phase(Phase.FRAMING, Phase.OPEN, Phase.CLOSING, action="add a source")
+    if source_inv == state.id:
+        raise CraftError("that is this investigation")
+    src_dir = next((d for d in (prog.archive_dir / source_inv, prog.investigation_dir(source_inv))
+                    if (d / "literature" / "sources.yaml").exists()), None)
+    if src_dir is None:
+        raise CraftError(f"no investigation '{source_inv}' with a literature map (archived: "
+                         f"{', '.join(prog.list_archived()) or 'none'}; open: {', '.join(prog.list_investigations())})")
+    carried, skipped = carry_sources(prog.root, src_dir, source_inv, inv.literature_dir, inv.sources, key)
+    echo(f"Carried {len(carried)} source(s) from {source_inv}" + (f": {', '.join(carried)}" if carried else "")
+         + ". Each is marked `carried_from`; full texts were copied into literature/ after their hashes matched. "
+         "The closest prior work and the delta are this investigation's own: set them with `craft literature closest`.")
+    for s in skipped:
+        echo(f"  not carried: {s}")
 
 
 @lit_app.command("closest")

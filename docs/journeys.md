@@ -269,6 +269,10 @@ closure names exactly which criteria went unjudged. ✓9.18 Each recorded input 
 (sources, conversions, choices that could have gone the other way), and the referee reads it with the
 design, since data choices are analysis choices. ✓9.19
 
+Starting a follow-on investigation, she brings the sources of the earlier one over in one command:
+each keeps its record and full-text hash and says where it came from, a full text whose contents no
+longer match is not carried, and the closest prior work is judged afresh for the new question. ✓9.20
+
 ---
 
 ## Coverage map
@@ -279,7 +283,7 @@ design, since data choices are analysis choices. ✓9.19
 | 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5, 9.5, 9.13 |
 | 3. Late confounds | 3.1 (rival explanations), 4.2 |
 | 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7, 9.19 |
-| 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2, 9.18 |
+| 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2, 9.18, 9.20 |
 | 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17 |
 | 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
 | 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4 |
