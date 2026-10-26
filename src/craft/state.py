@@ -99,6 +99,7 @@ class VerdictRef(BaseModel):
     file: str
     when: str
     post_hoc: bool = False  # the criterion was changed after registration
+    limitations: list[dict] = Field(default_factory=list)  # found after the verdict: {text, source, when}; label unchanged
 
 
 class KillState(BaseModel):
@@ -111,7 +112,7 @@ class KillState(BaseModel):
 
 class AttentionEntry(BaseModel):
     when: str
-    kind: str            # approve-problem | approve-env | reject-env | close | untaint(resolve) | acknowledge
+    kind: str            # approve-problem | approve-env | reject-env | close | untaint(resolve) | acknowledge | correct
     subject: str
     note: str = ""
 
@@ -133,6 +134,7 @@ class InvestigationState(BaseModel):
     kill: KillState = Field(default_factory=KillState)
     attention: list[AttentionEntry] = Field(default_factory=list)
     records: dict[str, str] = Field(default_factory=dict)  # path (relative to the investigation) -> sha256
+    data: dict[str, dict] = Field(default_factory=dict)     # data_id -> recorded input snapshot (see data.py)
     closed_at: str | None = None
     closure_summary: dict | None = None
 

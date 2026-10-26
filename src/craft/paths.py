@@ -30,6 +30,8 @@ MEMORY_FILES = {
     "finding": "findings.jsonl",
     "refuted": "refuted.jsonl",
     "open": "open-questions.jsonl",
+    "answered": "answered-questions.jsonl",  # parked questions answered before closure, with what answered them
+    "exploratory": "exploratory.jsonl",       # exploratory work that ran: what it found or chose; never evidence
 }
 
 DEFAULT_CONFIG = {
@@ -97,6 +99,11 @@ class Programme:
     @property
     def memory_index(self) -> Path:
         return self.memory_dir / "index.json"
+
+    @property
+    def memory_corrections(self) -> Path:
+        """Researcher corrections to memory entries (append-only; the entries themselves never change)."""
+        return self.memory_dir / "corrections.jsonl"
 
     def investigation_dir(self, inv_id: str) -> Path:
         return self.investigations_dir / inv_id
@@ -238,6 +245,10 @@ class InvestigationPaths:
     def verdict(self, name: str, criterion: str) -> Path:
         """criterion is `H1:C1` (hypothesis criterion) or `K1` (kill criterion)."""
         return self.experiment(name) / f"verdict-{criterion.replace(':', '-')}.md"
+
+    def verdict_limitations(self, name: str, criterion: str) -> Path:
+        """Limitations found after the verdict, kept beside it; the verdict file itself never changes."""
+        return self.experiment(name) / f"verdict-{criterion.replace(':', '-')}.limitations.md"
 
     def rel(self, path: Path) -> str:
         return path.resolve().relative_to(self.root.resolve()).as_posix()

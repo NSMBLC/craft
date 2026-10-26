@@ -9,10 +9,13 @@ criteria:
     op: ">="
     threshold: 0
     conditions: ""       # seeds, input sizes, budgets under which the metric counts
+    # deterministic: ""  # only if the metric has no run-to-run spread: say why; judged on one value
 outcome_rule:
   supported: ""
   refuted: ""
-  inconclusive: ""
+  inconclusive: ""       # write each branch as a condition in words: it is quoted next to the label
+  mechanical: false      # true only if the rule is exactly: all criteria supported -> supported,
+                         # any refuted -> refuted, otherwise inconclusive (then CRAFT's label is the rule's)
 rivals:                  # at least two, each with the design feature that discriminates it
   - explanation: ""
     discriminator: ""

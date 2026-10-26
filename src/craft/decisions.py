@@ -16,10 +16,10 @@ from typing import Callable
 from . import envlock, registry
 from .artifacts.closure import close_investigation
 from .artifacts.problem import validate_problem
-from .cli_support import load_context, verify_investigation
+from .cli_support import decision_target, load_context, verify_investigation
 from .paths import InvestigationPaths, Programme
 from .state import Approval, InvestigationState, Phase
-from .util import CraftError, now_iso, read_doc, sha256_file
+from .util import CraftError, append_jsonl, now_iso, read_doc, read_jsonl, sha256_file
 
 Confirm = Callable[[str], bool]
 
@@ -119,7 +119,7 @@ def env_reject(prog: Programme, inv_id: str | None, note: str, via: str) -> str:
 def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via: str) -> str:
     """The researcher closes whenever they choose; whatever is unfinished is routed to open questions."""
     inv, state = _ctx(prog, inv_id)
-    problems = verify_investigation(prog, state.id)
+    problems = verify_investigation(prog, state.id, full=True)
     if problems:
         raise CraftError("integrity problems block closure:\n  " + "\n  ".join(problems))
     state = InvestigationState.load(inv.root)
@@ -133,12 +133,17 @@ def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via:
             continue
         crits = ", ".join(f"{c} {h.criteria_labels.get(c, 'untested')}" for c in h.criteria) if h.rec.registered_sha256 else "never registered"
         lines.append(f"  {h.id} {h.status}: {crits}" + (" [post-hoc criteria change recorded]" if h.post_hoc else ""))
-    pending = [e.name for e in registry.all_experiments(inv, state) if e.status in ("planned", "run")]
+    exps = registry.all_experiments(inv, state)
+    explored = [e.name for e in exps if e.exploratory and e.status == "run"]
+    pending = [e.name for e in exps if e.status in ("planned", "run") and e.name not in explored]
+    if explored:
+        lines.append(f"  exploratory work recorded: {', '.join(explored)}")
     if pending:
         lines.append(f"  experiments not finished: {', '.join(pending)}")
-    qs = registry.questions(inv)
-    if qs:
-        lines.append(f"  open questions in questions.md: {len(qs)}")
+    pq = registry.parked_questions(inv, state)
+    if pq:
+        n_ans = sum(q.answered for q in pq)
+        lines.append(f"  questions.md: {len(pq) - n_ans} open, {n_ans} answered")
     if inv.closure.exists():
         cfm, _ = read_doc(inv.closure)
         lines.append(f"  anomalies: {len(cfm.get('anomalies') or [])}")
@@ -147,15 +152,17 @@ def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via:
         raise Declined("Not closed.")
     state.phase = Phase.CLOSING
     routed = close_investigation(prog, inv, state, (note + " " if note else "") + f"[via {via}]")
+    extra = "".join(f", {label} +{len(routed[k])}" for k, label in (("answered", "answered questions"),
+                                                                      ("exploratory", "exploratory work")) if routed[k])
     return preview + (f"\nClosed. findings +{len(routed['finding'])}, refuted +{len(routed['refuted'])}, "
-                      f"open questions +{len(routed['open'])}. Archived to archive/{state.id}/.")
+                      f"open questions +{len(routed['open'])}{extra}. Archived to archive/{state.id}/.")
 
 
 def untaint(prog: Programme, inv_id: str | None, note: str, accept_current: bool, confirm: Confirm, via: str) -> str:
     inv, state = _ctx(prog, inv_id)
     if not state.tainted:
         return "not tainted"
-    preview = "Taint reasons:\n  " + "\n  ".join(state.taint_reasons)
+    preview = f"Integrity hold on {state.id}:\n  " + "\n  ".join(state.taint_reasons)
     if accept_current:
         if not confirm(preview + "\nRe-record the CURRENT contents of the recorded files as authoritative? This is logged."):
             raise Declined("Not untainted.")
@@ -165,6 +172,13 @@ def untaint(prog: Programme, inv_id: str | None, note: str, accept_current: bool
                 state.records[rel] = sha256_file(p)
             else:
                 del state.records[rel]
+        from . import data as data_mod
+
+        for did, rec in list(state.data.items()):
+            try:
+                state.data[did] = {**rec, **data_mod.snapshot(prog, prog.root / rec["path"])}
+            except CraftError:
+                del state.data[did]
         if state.env.lock_sha256 and inv.env_lock.exists():
             state.env.lock_sha256 = sha256_file(inv.env_lock)
     state.tainted = False
@@ -178,14 +192,42 @@ def untaint(prog: Programme, inv_id: str | None, note: str, accept_current: bool
     return preview + "\nUntainted."
 
 
+def correct(prog: Programme, entry_id: str, note: str, evidence: Path | None, confirm: Confirm, via: str) -> str:
+    """Record a correction to a memory entry. Memory stays append-only: the entry is never rewritten,
+    and the correction is shown wherever the entry is (recall, explain, `craft new` acknowledgements)."""
+    from . import memory as mem
+
+    rec = mem.find_entry(prog, entry_id)
+    if rec is None:
+        raise CraftError(f"no memory entry {entry_id}")
+    if len(note.split()) < 4:
+        raise CraftError("--note is too thin; say what is wrong with the entry and what is true instead")
+    ev = None
+    if evidence is not None:
+        p = evidence if evidence.is_absolute() else prog.root / evidence
+        rel = prog.relpath(p)
+        if rel is None or not p.is_file():
+            raise CraftError(f"--evidence {evidence}: not a file inside the programme")
+        ev = {"path": rel.as_posix(), "sha256": sha256_file(p)}
+    preview = "\n".join([f"Memory entry {entry_id} [{rec['kind']}]: {mem.entry_text(rec)}",
+                          f"  correction: {note}"] + ([f"  evidence:   {ev['path']}"] if ev else []))
+    if not confirm(preview + "\nRecord this correction? The entry stays as written; the correction is shown with it."):
+        raise Declined("Not recorded.")
+    n = len(read_jsonl(prog.memory_corrections)) + 1
+    append_jsonl(prog.memory_corrections, {"id": f"C-{n:04d}", "entry": entry_id, "note": note, "evidence": ev,
+                                           "when": now_iso(), "via": via})
+    mem.build_index(prog)
+    return preview + f"\nCorrection C-{n:04d} recorded on {entry_id}."
+
+
 # ------------------------------------------------------------- typed-prompt dispatch
 
 # Accepted forms: `/craft-approve` (slash skill), `/craft approve`, `craft approve`, each with optional
 # subject and options. Read-only queries (status, help, decisions, explain) use the same channel.
-DECISION_VERBS = ("approve", "reject", "close", "reopen", "resolve")
-QUERY_VERBS = ("status", "help", "decisions", "explain")
+DECISION_VERBS = ("approve", "reject", "close", "reopen", "resolve", "correct")
+QUERY_VERBS = ("status", "help", "decisions", "explain", "glossary")
 TYPED_RE = re.compile(
-    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve|reject|close|reopen|resolve|status|help|decisions|explain)\b(.*)$",
+    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve|reject|close|reopen|resolve|correct|status|help|decisions|explain|glossary)\b(.*)$",
     re.S,
 )
 SUBJECTS = {"approve": {"problem", "package", None}, "reject": {"package", None}, "reopen": {"problem", "review"},
@@ -209,15 +251,23 @@ def parse_typed(prompt: str) -> tuple[str, dict] | None:
     except ValueError:
         return None
     opts: dict = {"inv": None, "note": "", "lock": None, "incomplete": False, "accept_current": False,
-                  "subject": None, "arg": None}
+                  "subject": None, "arg": None, "evidence": None}
     if verb == "explain":
         if len(toks) != 1 or toks[0].startswith("-"):
             return None
         opts["arg"] = toks[0]
         return "explain", opts
+    if verb == "glossary":
+        if len(toks) > 1:
+            return None
+        opts["arg"] = toks[0] if toks else None
+        return "glossary", opts
     if toks and not toks[0].startswith("-"):
         opts["subject"] = toks.pop(0)
-    if opts["subject"] not in SUBJECTS[verb]:
+    if verb == "correct":
+        if not opts["subject"]:
+            return None
+    elif opts["subject"] not in SUBJECTS[verb]:
         return None
     if verb == "reopen" and opts["subject"] is None:
         return None
@@ -232,6 +282,9 @@ def parse_typed(prompt: str) -> tuple[str, dict] | None:
             i += 2
         elif t == "--lock" and i + 1 < len(toks):
             opts["lock"] = Path(toks[i + 1])
+            i += 2
+        elif t == "--evidence" and i + 1 < len(toks) and verb == "correct":
+            opts["evidence"] = Path(toks[i + 1])
             i += 2
         elif t == "--incomplete":
             opts["incomplete"] = True
@@ -251,6 +304,8 @@ def run_typed(prog: Programme, verb: str, o: dict) -> str:
 
     via = "typed prompt"
     subject = o.get("subject")
+    if verb in ("approve", "reject", "close", "resolve"):
+        o = {**o, "inv": decision_target(prog, o["inv"], verb)}
     if verb == "approve":
         subject = subject or pending_subject(prog, o["inv"], "approve")
         if subject == "problem":
@@ -269,6 +324,10 @@ def run_typed(prog: Programme, verb: str, o: dict) -> str:
         if not o["note"]:
             raise CraftError('`/craft-resolve` needs --note "what happened"')
         return untaint(prog, o["inv"], o["note"], o["accept_current"], typed_confirm, via)
+    if verb == "correct":
+        if not o["note"]:
+            raise CraftError('`/craft-correct <entry-id>` needs --note "what is wrong and what is true instead"')
+        return correct(prog, subject, o["note"], o["evidence"], typed_confirm, via)
     raise CraftError(f"unknown decision '{verb}'")
 
 
@@ -285,6 +344,10 @@ def run_query(prog: Programme, verb: str, o: dict) -> str:
     if verb == "explain":
         text, _broken = explain_text(prog, o["arg"])
         return text
+    if verb == "glossary":
+        from .glossary import glossary_text
+
+        return glossary_text(o["arg"])
     raise CraftError(f"unknown query '{verb}'")
 
 

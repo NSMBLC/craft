@@ -15,9 +15,13 @@ from .paths import ARCHIVE_DIR, INVESTIGATIONS_DIR, MEMORY_DIR, PROGRAMME_MARKER
 from .state import InvestigationState, Phase
 from .util import CraftError
 
-HUMAN_ONLY = ("approve", "reject", "close", "reopen", "resolve")  # `craft <verb> ...`
+HUMAN_ONLY = ("approve", "reject", "close", "reopen", "resolve", "correct")  # `craft <verb> ...`
+# The verb must be the subcommand (`craft approve`, `uv run craft close`, `python -m craft.cli resolve`),
+# not a word in a quoted reason or limitation text. The CLI also refuses these inside an agent tool
+# call (human.require_human), so this screen is one layer of three.
 HUMAN_ONLY_RE = re.compile(
-    r"\bcraft\b[^;&|\n]*?\b(approve|reject|close|reopen|resolve|hook)\b|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
+    r"\bcraft(?:\.cli)?['\"]?\s+['\"]?(approve|reject|close|reopen|resolve|correct|hook)\b"
+    r"|\bCRAFT_ALLOW_NON_TTY\b|\bCRAFT_HUMAN\b"
     r"|\buser-prompt-submit\b|\bhooks\.py\b|\bcraft\.hooks\b|\bcraft\.decisions\b|\bdecisions\.py\b"
 )
 # Not file writes: `2>&1`, `>&2`, `&>/dev/null`, `>/dev/null`, `2>/dev/null`, an email in angle
@@ -25,10 +29,14 @@ HUMAN_ONLY_RE = re.compile(
 HARMLESS_REDIRECT_RE = re.compile(
     r"\d*>&\d+|&>\s*/dev/null|\d*>{1,2}\s*/dev/null|<[^<>\s]+@[^<>\s]+>|[-=]>"
 )
+# A file-open mode that writes (w, a, x or +), as a whole quoted string: only the mode argument counts,
+# never a path that happens to start with "a" or "w" (open('archive/...') is a read).
+_WRITE_MODE = r"""['"][rbt]*[wax+][rwabxt+]*['"]"""
 MUTATION_RE = re.compile(
     r"(?<![<>])>{1,2}(?!>)|\btee\b|\bmv\b|\bcp\b|\brm\b|\bchmod\b|\bchown\b|\bsed\s+-[a-zA-Z]*i|"
     r"\btruncate\b|\bln\b|\bmkdir\b|\brmdir\b|\bpatch\b|\bgit\s+(checkout|restore|reset|clean|stash)\b|"
-    r"\bopen\([^)]*['\"][wa]|\bwrite_text\b|\bwrite_bytes\b|\bshutil\b|\bos\.(remove|unlink|rename|replace|chmod)\b|\bunlink\b"
+    rf"\bopen\([^)]*?,\s*(?:mode\s*=\s*)?{_WRITE_MODE}|\.open\(\s*(?:mode\s*=\s*)?{_WRITE_MODE}|"
+    r"\bwrite_text\b|\bwrite_bytes\b|\bshutil\b|\bos\.(remove|unlink|rename|replace|chmod)\b|\bunlink\b"
 )
 
 
@@ -78,6 +86,14 @@ def decide_write(prog: Programme, target: Path) -> Decision:
         )
     if head == ARCHIVE_DIR:
         return Decision.deny(f"{rel}: archived investigations are the record of what happened; they are never edited.")
+    from . import data as data_mod
+
+    held = data_mod.covering(prog, rel.as_posix())
+    if held:
+        return Decision.deny(
+            f"{rel} is recorded input data ('{held[1]}' in {held[0]}); criteria depend on it, so it is never changed in "
+            "place. Write a new snapshot elsewhere and record it under a new id (`craft data add <path> --id <new-id>`)."
+        )
     if head != INVESTIGATIONS_DIR:
         return Decision.ok()
     if len(parts) < 2:
@@ -213,6 +229,49 @@ def _evidence_write(state: InvestigationState, exp: str, inv: InvestigationPaths
 
 # ---------------------------------------------------------------- bash screening
 
+_SEPARATORS = {";", "&&", "||", "|", "&", "\n"}
+_COPY_PROGRAMS = {"cp", "rsync"}  # read every source, write only the destination
+
+
+def _write_candidates(command: str) -> list[str]:
+    """Tokens that may name a file the command writes. For `cp`/`rsync` only the destination (the last
+    argument, or `-t DIR`) and redirect targets count: their sources are only read."""
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:
+        return command.split()
+    out: list[str] = []
+    seg: list[str] = []
+    for tok in tokens + [";"]:
+        if tok not in _SEPARATORS:
+            seg.append(tok)
+            continue
+        words = [t for t in seg if not re.fullmatch(r"\w+=.*", t)]  # leading VAR=value assignments
+        while words and words[0] in ("sudo", "command", "env", "time", "nice"):
+            words = words[1:]
+        if words and PurePosixPath(words[0]).name in _COPY_PROGRAMS:
+            redirect_targets = [seg[i + 1] for i, t in enumerate(seg[:-1]) if re.fullmatch(r"\d*>{1,2}|&>", t)]
+            args, dest, skip = [], None, False
+            for i, t in enumerate(words[1:], start=1):
+                if skip:
+                    skip = False
+                    continue
+                if t in ("-t", "--target-directory") and i + 1 < len(words):
+                    dest, skip = words[i + 1], True
+                elif t.startswith("--target-directory="):
+                    dest = t.split("=", 1)[1]
+                elif re.fullmatch(r"\d*>{1,2}|&>|<", t):
+                    skip = True
+                elif not t.startswith("-"):
+                    args.append(t)
+            out += [dest or (args[-1] if args else "")] + redirect_targets
+        else:
+            out += seg
+        seg = []
+    return [t for t in out if t]
+
 def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decision:
     """Screen a shell command the agent wants to run.
 
@@ -223,7 +282,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     """
     if HUMAN_ONLY_RE.search(command):
         return Decision.deny(
-            "that `craft` command is a researcher decision (approve / reject / close / reopen / resolve). "
+            "that `craft` command is a researcher decision (approve / reject / close / reopen / resolve / correct). "
             "Ask the researcher to type it as a slash command (e.g. `/craft-approve`); "
             "CRAFT executes typed decisions directly. The agent cannot approve on their behalf.",
             "1.6",
@@ -232,10 +291,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     if not mutation:
         return Decision.ok()
     base = cwd or Path.cwd()
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        tokens = command.split()
+    tokens = _write_candidates(command)
     seen: set[str] = set()
     for tok in tokens:
         tok = tok.strip("'\"`;,()")

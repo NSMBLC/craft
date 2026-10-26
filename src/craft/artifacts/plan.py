@@ -11,6 +11,7 @@ from ..paths import InvestigationPaths
 from ..state import InvestigationState
 from ..util import read_doc
 from .common import Validation, nonempty
+from .fields import unrecognised
 
 
 def validate_plan(inv: InvestigationPaths, state: InvestigationState, name: str) -> Validation:
@@ -18,6 +19,8 @@ def validate_plan(inv: InvestigationPaths, state: InvestigationState, name: str)
 
     v = Validation(f"experiments/{name}/plan.md")
     fm, _ = read_doc(inv.experiment_plan(name))
+    for field_, msg in unrecognised(fm, "plan"):
+        v.warn(field_, msg)
     if not nonempty(fm.get("description")):
         v.error("description", "missing — one or two lines on what is run and how")
     view = registry.exp_view(inv, state, name)

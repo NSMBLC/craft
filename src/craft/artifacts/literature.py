@@ -13,6 +13,9 @@ from ..util import CraftError, now_iso, read_yaml, sha256_file, write_yaml
 from .common import Validation, nonempty
 
 USED_FIELDS = ("claims", "method", "relation", "does_not_cover")
+# used: full text read (may back claims); abstract-only: consulted and citable for context, never backs a
+# claim; rejected: consulted and set aside as not relevant.
+STATUSES = ("used", "abstract-only", "rejected")
 RELATIONS = {"supports", "conflicts", "orthogonal", "mixed"}
 
 PRIORITY_CLAIM_RE = re.compile(
@@ -40,6 +43,7 @@ def add_source(
     method: str = "",
     relation: str = "",
     does_not_cover: str = "",
+    rejected: bool = False,
 ) -> dict:
     data = load_sources(path)
     if any(s.get("key") == key for s in data["sources"]):
@@ -62,8 +66,8 @@ def add_source(
         )
     else:
         if not reason:
-            raise CraftError("a consulted-and-rejected source needs --reason (one line)")
-        entry.update(status="rejected", reason=reason)
+            raise CraftError("a source not read in full needs --reason (one line: why only the abstract, or why it was set aside)")
+        entry.update(status="rejected" if rejected else "abstract-only", reason=reason)
     data["sources"].append(entry)
     write_yaml(path, data)
     return entry
@@ -81,17 +85,17 @@ def validate_literature(path: Path) -> Validation:
         if s.get("status") == "used":
             ft = s.get("fulltext")
             if not ft or not Path(ft).exists():
-                v.error(f"{key}.fulltext", "used source whose full text is not on disk; move to rejected with a reason")
+                v.error(f"{key}.fulltext", "used source whose full text is not on disk; record it as abstract-only with a reason")
             for f in USED_FIELDS:
                 if not nonempty(s.get(f)):
                     v.error(f"{key}.{f}", "missing (what it claims / how / supports-or-conflicts / what it does NOT cover)")
             if s.get("relation") and s["relation"] not in RELATIONS:
                 v.error(f"{key}.relation", f"must be one of {sorted(RELATIONS)}")
-        elif s.get("status") == "rejected":
+        elif s.get("status") in ("abstract-only", "rejected"):
             if not nonempty(s.get("reason")):
-                v.error(f"{key}.reason", "rejected source needs a one-line reason")
+                v.error(f"{key}.reason", f"{s['status']} source needs a one-line reason")
         else:
-            v.error(f"{key}.status", "must be 'used' or 'rejected'")
+            v.error(f"{key}.status", f"must be one of {', '.join(STATUSES)}")
     if used:
         cpw = data.get("closest_prior_work")
         if not cpw:

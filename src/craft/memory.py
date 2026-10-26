@@ -47,21 +47,45 @@ class Hit:
     score: float
     overlap: list[str]
     pointer: str
+    notes: str = ""  # limitations and researcher corrections, shown wherever the entry is cited
 
     def cite(self) -> str:
-        return f"[{self.kind}:{self.id}] {self.text} (investigation {self.investigation}, {self.date[:10]})"
+        return f"[{self.kind}:{self.id}] {self.text} (investigation {self.investigation}, {self.date[:10]}){self.notes}"
+
+
+def corrections(prog: Programme) -> dict[str, list[dict]]:
+    """Researcher corrections by the entry they correct (memory/corrections.jsonl, append-only)."""
+    out: dict[str, list[dict]] = {}
+    for c in read_jsonl(prog.memory_corrections):
+        out.setdefault(c.get("entry", ""), []).append(c)
+    return out
+
+
+def notes_suffix(rec: dict, corr: list[dict]) -> str:
+    """What must travel with an entry whenever it is shown: limitations found after its verdict, corrections."""
+    parts = []
+    lim = rec.get("limitations") or []
+    if lim:
+        parts.append(f"LIMITATION: {lim[-1].get('text', '')}" + (f" (+{len(lim) - 1} more)" if len(lim) > 1 else ""))
+    if corr:
+        parts.append(f"CORRECTED {corr[-1].get('when', '')[:10]}: {corr[-1].get('note', '')}"
+                     + (f" (+{len(corr) - 1} earlier)" if len(corr) > 1 else ""))
+    return "".join(f" — {p}" for p in parts)
 
 
 def build_index(prog: Programme) -> list[dict]:
     entries = []
+    corr = corrections(prog)
     for kind, fname in MEMORY_FILES.items():
         for rec in read_jsonl(prog.memory_dir / fname):
-            text = rec.get("claim") or rec.get("question") or ""
+            text = entry_text(rec)
+            extra = [lim.get("text", "") for lim in rec.get("limitations") or []] + [c.get("note", "") for c in corr.get(rec["id"], [])]
             entries.append({
                 "id": rec["id"], "kind": kind, "text": text,
                 "investigation": rec.get("investigation", ""), "date": rec.get("closed", rec.get("when", "")),
-                "tokens": tokenize(" ".join([text, rec.get("context", ""), " ".join(rec.get("keywords", []))])),
+                "tokens": tokenize(" ".join([text, rec.get("context", ""), " ".join(rec.get("keywords", [])), *extra])),
                 "pointer": f"memory/{fname}#{rec['id']}",
+                "notes": notes_suffix(rec, corr.get(rec["id"], [])),
             })
     # archived problem statements are memory too: what was asked
     for inv_id in prog.list_archived():
@@ -79,12 +103,15 @@ def build_index(prog: Programme) -> list[dict]:
     return entries
 
 
+def entry_text(rec: dict) -> str:
+    return rec.get("claim") or rec.get("question") or rec.get("summary") or ""
+
+
 def _index_stale(prog: Programme) -> bool:
     if not prog.memory_index.exists():
         return True
     ts = prog.memory_index.stat().st_mtime
-    for fname in MEMORY_FILES.values():
-        p = prog.memory_dir / fname
+    for p in [prog.memory_dir / f for f in MEMORY_FILES.values()] + [prog.memory_corrections]:
         if p.exists() and p.stat().st_mtime > ts:
             return True
     if prog.archive_dir.exists() and prog.archive_dir.stat().st_mtime > ts:
@@ -135,7 +162,8 @@ def recall(prog: Programme, query: str, min_overlap: int | None = None) -> list[
                 score += idf * tf[t] * (k1 + 1) / (tf[t] + k1 * (1 - b + b * dl / avgdl))
         need = min(min_overlap, max(1, len(q_set)))
         if len(overlap) >= need and score > 0:
-            hits.append(Hit(e["id"], e["kind"], e["text"], e["investigation"], e["date"], score, sorted(overlap), e["pointer"]))
+            hits.append(Hit(e["id"], e["kind"], e["text"], e["investigation"], e["date"], score, sorted(overlap), e["pointer"],
+                            e.get("notes", "")))
     hits.sort(key=lambda h: -h.score)
     return hits
 
@@ -151,6 +179,7 @@ def find_entry(prog: Programme, entry_id: str) -> dict | None:
             if rec.get("id") == entry_id:
                 rec = dict(rec)
                 rec["kind"] = kind
+                rec["corrections"] = corrections(prog).get(entry_id, [])
                 return rec
     return None
 

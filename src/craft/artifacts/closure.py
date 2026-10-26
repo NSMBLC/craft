@@ -1,8 +1,9 @@
 """Closing an investigation: route outcomes and open threads to memory, archive intact (Journey 7).
 
 Routing: a supported criterion -> findings; refuted -> refuted; inconclusive, untested registered
-criteria, draft ideas, unfinished experiments, questions.md, closure.md anomalies and a fired kill
-criterion -> open questions. Dropped hypotheses go nowhere but stay in the archive.
+criteria, draft ideas, unfinished experiments, open questions.md bullets, closure.md anomalies and a
+fired kill criterion -> open questions; questions.md bullets marked answered -> answered questions;
+exploratory experiments that ran -> exploratory work. Dropped hypotheses go nowhere but stay in the archive.
 """
 
 from __future__ import annotations
@@ -11,14 +12,14 @@ import shutil
 
 from .. import memory as mem
 from .. import registry
-from ..paths import InvestigationPaths, Programme
+from ..paths import MEMORY_FILES, InvestigationPaths, Programme
 from ..state import InvestigationState, Phase
 from ..util import CraftError, append_jsonl, now_iso, read_doc, sha256_file, split_frontmatter
 
 
 def _next_id(prog: Programme, prefix: str) -> str:
     existing = 0
-    for fname in ("findings.jsonl", "refuted.jsonl", "open-questions.jsonl"):
+    for fname in MEMORY_FILES.values():
         for rec in mem.read_jsonl(prog.memory_dir / fname):
             if str(rec.get("id", "")).startswith(prefix + "-"):
                 try:
@@ -43,7 +44,7 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
     arch = f"archive/{state.id}"
 
     keywords = mem.tokenize(" ".join(str(prob_fm.get(k, "")) for k in ("title", "studying", "to_find_out")))[:40]
-    routed: dict[str, list[str]] = {"finding": [], "refuted": [], "open": []}
+    routed: dict[str, list[str]] = {k: [] for k in MEMORY_FILES}
 
     def put(kind: str, prefix: str, rec: dict) -> None:
         rec = {"id": _next_id(prog, prefix), **rec, "investigation": state.id, "closed": when}
@@ -74,10 +75,14 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
             "env_version": vfm.get("env_version"),
             "seeds": vfm.get("seeds"),
             "data_ids": vfm.get("data_ids"),
+            "data_records": vfm.get("data_records") or [],
             "hypothesis_file": f"{arch}/{inv.rel(inv.registered(hid))}",
             "hypothesis_sha256": h.rec.registered_sha256 if h else None,
             "post_hoc": vfm.get("post_hoc"),
         }
+        if v.limitations:
+            tags["limitations"] = list(v.limitations)
+            lineage["limitations_file"] = f"{arch}/{inv.rel(inv.verdict_limitations(v.experiment, v.criterion))}"
         if v.label == "supported":
             put("finding", "F", {"claim": claim_text, **tags, "lineage": lineage})
         elif v.label == "refuted":
@@ -93,17 +98,27 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
             put("open", "Q", {"question": f"untested idea {h.id}: {h.claim}", **_tags(h, False),
                               "context": "drafted but never registered by review"})
         elif h.status == "registered" and h.untested:
+            why = registry.not_tested_reason(inv, state, h)
             put("open", "Q", {"question": f"untested {h.id}: {h.claim} [{', '.join(h.untested)} never judged]",
-                              **_tags(h, h.post_hoc), "context": f"registered {h.rec.registered_at}; no verdict before closure"})
+                              **_tags(h, h.post_hoc), "context": f"registered {h.rec.registered_at}; "
+                              + (f"not tested by decision ({why})" if why else "no verdict before closure")})
 
     for e in registry.all_experiments(inv, state):
-        if e.status in ("planned", "run") and e.description:
+        src = {"origin": str(e.plan.get("origin") or "researcher"), "derived_from": str(e.plan.get("derived_from") or "")}
+        if e.exploratory and e.status == "run":
+            put("exploratory", "X", {"summary": f"exploratory experiment {e.name}: {e.description or '(no description)'}",
+                                     **src, "files": [f"{arch}/{f}" for f in e.explored],
+                                     "context": "completed exploratory work; it can inform designs but never backs a criterion"})
+        elif e.status in ("planned", "run") and e.description:
             put("open", "Q", {"question": f"experiment {e.name} was {'planned but never run' if e.status == 'planned' else 'run but not judged'}: {e.description}",
-                              "origin": str(e.plan.get("origin") or "researcher"), "derived_from": str(e.plan.get("derived_from") or ""),
-                              "context": f"tests {', '.join(e.tests) or 'nothing'}"})
+                              **src, "context": f"tests {', '.join(e.tests) or 'nothing'}"})
 
-    for q in registry.questions(inv):
-        put("open", "Q", {"question": q, "context": "parked in questions.md"})
+    for q in registry.parked_questions(inv, state):
+        if q.answered:
+            put("answered", "A", {"question": q.text, "answered_by": _archived(inv, arch, q.pointer),
+                                  "context": "parked in questions.md and answered before closure"})
+        else:
+            put("open", "Q", {"question": q.text, "context": "parked in questions.md"})
 
     for a in closure_fm.get("anomalies") or []:
         if isinstance(a, dict) and a.get("question"):
@@ -126,7 +141,19 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
     return routed
 
 
+def _archived(inv: InvestigationPaths, arch: str, pointer: str) -> str:
+    """A pointer to a file in the investigation, rewritten to where closing archives it."""
+    path = pointer.split("#", 1)[0].strip()
+    if path and (inv.root / path).exists():
+        return f"{arch}/{pointer.strip()}"
+    return pointer
+
+
 def _tags(h: "registry.HypView | None", post_hoc: bool) -> dict:
     if h is None:
         return {"post_hoc": post_hoc}
-    return {"hypothesis": h.id, "origin": h.origin, "derived_from": h.derived_from, "post_hoc": post_hoc}
+    tags = {"hypothesis": h.id, "origin": h.origin, "derived_from": h.derived_from, "post_hoc": post_hoc}
+    if h.status in registry.OUTCOMES:
+        tags["hypothesis_outcome"] = h.status
+        tags["outcome_basis"] = h.label_basis()
+    return tags

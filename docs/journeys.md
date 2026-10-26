@@ -1,6 +1,6 @@
 # CRAFT — User Journeys
 
-Eight journeys describe how the researcher interacts with CRAFT across the life of a
+Nine journeys describe how the researcher interacts with CRAFT across the life of a
 research programme. Together they are the acceptance suite: each journey embeds numbered
 checkpoints (✓) that an implementation must satisfy, observable from the researcher's
 side. Journeys 4 and 5 contain the checkpoints that must hold *mechanically* — they must
@@ -53,7 +53,8 @@ sound. ✓1.7
 Elena asks the agent to map prior work — and, later, to search again whenever results raise
 something new. Some time later she reads the result: each source
 the agent claims to have used was actually retrieved and read — anything it could only see
-as an abstract is listed separately as consulted-and-rejected, with a one-line reason.
+as an abstract is listed separately as abstract-only (citable for context, never backing a claim),
+and anything set aside as rejected, each with a one-line reason.
 ✓2.1 Each source is mapped by what it claims, how, whether it supports or conflicts with
 her direction, and — the field she reads most carefully — what it does *not* cover. ✓2.2
 
@@ -213,24 +214,76 @@ the programme, `craft verify` passes on their machine and still catches a hand-e
 
 ---
 
+## Journey 9 — The record stays true
+
+Elena's programme is a season old, and what it holds is only useful if it is true. An exploratory
+sweep that chose the circuit for everything after it shows as run on the board, and when the
+investigation closes it is recorded as completed exploratory work, not as a thread nobody followed. ✓9.1
+A question she parked in `questions.md` was answered by a verdict an hour later; she adds
+`answered:` and the verdict file to its bullet, and closure records it as answered, with that pointer,
+instead of leaving it open forever. ✓9.2
+
+A week after a supported verdict, an exploratory check shows the simulation computed one component
+exactly, which hardware cannot. The verdict is right for what it tested and does not change, but a
+limitation is attached to it with its source, and from then on it travels with the verdict: on the
+board, at closure, in memory, in recall and in `craft explain`. ✓9.3 An open question already in memory
+turns out to be wrong; she types a correction with its evidence. Memory still holds the entry as written,
+and the correction is shown wherever the entry is; the agent cannot record one for her. ✓9.4
+
+When the problem statement is revised and H1 needs new criteria, the kill-criterion pilot that ran under
+H1's experiment does not stop H1 being registered again, because none of its data bears on H1's own
+criteria; evidence that does still blocks it. ✓9.5 After a verdict, the hypothesis's label says where it
+came from: the registered outcome rule when that rule is the mechanical one, otherwise CRAFT's roll-up of
+the criterion labels, shown next to the rule that governs. ✓9.6 A metric with no spread (exact enumeration
+on fixed inputs) is declared deterministic in the criterion before review, so its verdict needs no
+invented interval; one that was not declared still needs its uncertainty, and a refusal lists everything
+the evidence is missing at once. ✓9.7
+
+The price snapshot every criterion depends on is recorded by hash. A changed or re-downloaded file is
+detected, the investigation is held until Elena has looked, the agent cannot overwrite it, and each
+verdict records the hash of the data it used. ✓9.8 The environment record only ever describes an
+environment: a data file is refused as a lock, versions only move forward, and a lock missing a package
+she approved is refused. ✓9.9
+
+With two investigations open and only one waiting on her, a bare `/craft-approve` reaches that one;
+when both are waiting, the board shows the command with `--inv` before she types it. ✓9.10 A one-line idea
+validates as an idea, not as a failed draft. ✓9.11 Memory relevant to what she is doing is shown once per
+session, not on every prompt, so it still gets read when it matters. ✓9.12 And recording where a
+registered hypothesis came from, or adding a note to it, leaves its registration exactly as it was: only
+a change to what review judged (claim, warrant, criteria, outcome rule, rivals, predictions, power) counts
+as an edit. ✓9.13 When she stops a hypothesis's only experiment, or defers a registered hypothesis by
+decision, the board stops listing it as work for the agent: it says why it is not being tested and that
+it will close as an open question, and the next step points at what is actually next. ✓9.14 Every word the board uses (each status, each
+way of stopping something, each way of fixing the record) has one line in a glossary she can open from the
+board, saying what it means and what happens to it at closure. ✓9.15
+
+When CRAFT itself is upgraded, refreshing the programme brings its rules and commands up to date and
+says what changed, leaves her own text alone, and flags any field in her files that CRAFT no longer
+reads; run from a subfolder, it refuses to create a programme inside the programme. ✓9.16 Before an
+expensive run, the agent checks a dry-run evidence file against each criterion as written; CRAFT says
+whether it would be accepted and what is missing, records nothing, and shows no label. ✓9.17
+
+---
+
 ## Coverage map
 
 | Failure mode | Checkpoints |
 |---|---|
 | 1. Vague questions | 1.3, 1.4, 1.5, 1.7 |
-| 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5 |
+| 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5, 9.5, 9.13 |
 | 3. Late confounds | 3.1 (rival explanations), 4.2 |
-| 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4 |
-| 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3 |
-| 6. Reproducibility | 6.1, 6.4, 7.2, 8.7 |
-| 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6 |
-| 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7 |
+| 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7 |
+| 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2 |
+| 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17 |
+| 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
+| 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |
 | 10. Forced linearity | 8.1, 8.2, 8.3 |
-| Institutional-memory integrity | 5.6, 7.1 |
+| Institutional-memory integrity | 5.6, 7.1, 9.1, 9.2, 9.4 |
 
 Recommended acceptance run: one small end-to-end investigation that plants Journey 4's
 design flaw, stages Journey 5's threshold miss and bypass attempts, includes Journey 6's
 exploratory batch, branches into Journey 8's second hypothesis, parked idea and post-hoc
 edit, hits the kill condition, and closes with Journey 7's mixed outcome — followed by the
-fresh-session memory checks (7.2, 7.3) and a fresh clone (8.7). That single arc exercises every journey.
+fresh-session memory checks (7.2, 7.3) and a fresh clone (8.7). That single arc exercises Journeys 1–8;
+Journey 9's checkpoints each build a small programme of their own (`tests/acceptance/test_record.py`).

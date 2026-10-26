@@ -84,12 +84,16 @@ def user_prompt_submit() -> int:
     from . import memory as mem
 
     hits = mem.recall(prog, prompt)
-    if not hits:
-        return 0
-    lines = ["<craft-memory>", "Programme memory relevant to this prompt (surface it to the researcher before drafting anything):"]
-    for h in hits[:5]:
+    seen = _seen(prog, payload)
+    fresh = [h for h in hits if h.id not in seen]
+    if not fresh:
+        return 0  # surfaced earlier in this session already; repeating it trains everyone to skip the block
+    _remember(prog, payload, seen | {h.id for h in fresh[:5]})
+    lines = ["<craft-memory>", "Programme memory relevant to this prompt, not yet shown in this session "
+             "(surface it to the researcher before drafting anything):"]
+    for h in fresh[:5]:
         lines.append(f"- {h.cite()} — see {h.pointer}")
-    refuted = [h for h in hits if h.kind == "refuted"]
+    refuted = [h for h in fresh[:5] if h.kind == "refuted"]
     if refuted:
         lines.append(
             "A prior investigation REFUTED a related claim. Cite it and ask what has changed that justifies "
@@ -98,6 +102,39 @@ def user_prompt_submit() -> int:
     lines.append("</craft-memory>")
     print("\n".join(lines))
     return 0
+
+
+def _seen_file(prog: Programme, payload: dict) -> Path | None:
+    """Per-session record of memory entries already surfaced, outside the programme (not research data)."""
+    import hashlib
+    import tempfile
+
+    sid = str(payload.get("session_id") or "")
+    if not sid:
+        return None
+    key = hashlib.sha256(f"{prog.root}\0{sid}".encode()).hexdigest()[:24]
+    return Path(tempfile.gettempdir()) / "craft-sessions" / f"{key}.json"
+
+
+def _seen(prog: Programme, payload: dict) -> set[str]:
+    f = _seen_file(prog, payload)
+    if f is None or not f.exists():
+        return set()
+    try:
+        return set(json.loads(f.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return set()
+
+
+def _remember(prog: Programme, payload: dict, ids: set[str]) -> None:
+    f = _seen_file(prog, payload)
+    if f is None:
+        return
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(sorted(ids)), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _typed_decision(prog: Programme, payload: dict, prompt: str) -> str | None:
@@ -156,6 +193,8 @@ def _next_step(verb: str, opts: dict, result: str) -> str:
         return "Then ask the researcher what they want changed; the files are editable, so make the change they ask for."
     if verb == "resolve":
         return "Then report the board (`craft status`) and wait."
+    if verb == "correct":
+        return "Then continue; cite the correction whenever you cite that entry."
     return ""
 
 

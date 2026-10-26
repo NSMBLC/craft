@@ -111,3 +111,45 @@ def test_bash_screen_ignores_emails_and_arrows(tmp_path):
     assert decide_bash(prog, 'git commit -m "craft init -> scaffolding; a => b" craft.yaml', tmp_path.resolve()).allow
     d = decide_bash(prog, "echo x > craft.yaml", tmp_path.resolve())
     assert not d.allow and "looked like a write because of `>`" in d.reason
+
+
+def test_bash_screen_matches_decision_subcommands_not_words(tmp_path):
+    (tmp_path / "craft.yaml").write_text("version: 1\n")
+    prog = Programme(tmp_path)
+    for cmd in ("craft correct Q-0001 --note x", "uv run craft close", "python -m craft.cli resolve --note x",
+                "craft 'approve' problem", "cd x; craft reject --note y"):
+        assert not decide_bash(prog, cmd, tmp_path).allow, cmd
+    for cmd in ('craft propose package scipy --reason "the old build would reject float128"',
+                'craft limitation exp1 --criterion H1:C1 --text "close to the threshold; correct only in simulation" --source x',
+                "grep -n approve docs/journeys.md"):
+        assert decide_bash(prog, cmd, tmp_path).allow, cmd
+
+
+def test_bash_screen_reads_open_modes_not_paths(tmp_path):
+    from craft.gate import HARMLESS_REDIRECT_RE, MUTATION_RE
+
+    def writes(cmd):
+        return bool(MUTATION_RE.search(HARMLESS_REDIRECT_RE.sub(" ", cmd)))
+
+    for cmd in ("python -c \"print(open('archive/x/verdict.md').read())\"",
+                "python -c \"json.load(open('investigations/i/experiments/e/evidence/a.json'))\"",
+                "python -c \"open('weights.csv', 'rb').read()\"", "python -c \"open(p, encoding='utf-8')\"",
+                "python -c \"Path('a.json').open()\""):
+        assert not writes(cmd), cmd
+    for cmd in ("python -c \"open('x.json', 'w')\"", "python -c \"open(p, mode='a')\"", "python -c \"open(p, 'r+')\"",
+                "python -c \"Path(p).open('wb')\"", "python -c \"open(p, 'x')\""):
+        assert writes(cmd), cmd
+
+
+def test_bash_screen_copy_reads_sources_writes_destination(tmp_path):
+    root = tmp_path.resolve()
+    (root / "craft.yaml").write_text("version: 1\n")
+    (root / "archive").mkdir()
+    prog = Programme(root)
+    assert decide_bash(prog, "mkdir -p notes/lit && cp archive/inv-1/literature/kim.pdf notes/lit/", root).allow
+    assert decide_bash(prog, "rsync -a archive/inv-1/literature/ notes/lit/", root).allow
+    assert decide_bash(prog, "cp -t notes/lit archive/inv-1/a.pdf archive/inv-1/b.pdf", root).allow
+    assert not decide_bash(prog, "cp notes/x.json archive/inv-1/verdict.md", root).allow
+    assert not decide_bash(prog, "cp -t archive/inv-1 notes/x.json", root).allow
+    assert not decide_bash(prog, "cp a.txt b.txt > memory/findings.jsonl", root).allow
+    assert not decide_bash(prog, "mv archive/inv-1/a.pdf notes/", root).allow  # mv removes its source
