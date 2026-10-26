@@ -59,3 +59,5 @@
 | 9.13 | test_provenance_and_notes_never_touch_a_registration |
 | 9.14 | test_abandoned_or_deferred_hypotheses_are_not_pending_work |
 | 9.15 | test_one_glossary_for_the_words_on_the_board |
+| 9.16 | test_refresh_reports_changes_and_never_nests |
+| 9.17 | test_evidence_can_be_checked_before_the_real_run |

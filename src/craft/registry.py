@@ -398,6 +398,14 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
         return ("agent", "write hypotheses/H1.md",
                 "no hypotheses yet: draft one (or several, or park one-line ideas) in hypotheses/")
     drafts = [h.id for h in hyps if h.status == "draft"]
+    if not any(h.rec.registered_sha256 for h in hyps):
+        ideas = [h.id for h in hyps if h.status == "draft" and h.idea]
+        started = [h.id for h in hyps if h.status == "draft" and not h.idea]
+        what = "; ".join(x for x in [f"drafts in progress: {', '.join(started)}" if started else "",
+                                     f"ideas parked: {', '.join(ideas)}" if ideas else ""] if x)
+        return ("researcher", "/craft-close",
+                "no hypothesis is registered yet" + (f" ({what})" if what else "") + ". The researcher picks one for the "
+                "agent to complete and send to review, or closes the investigation")
     tail = f"; draft ideas parked: {', '.join(drafts)}" if drafts else ""
     if parked:
         tail += "; not being tested (each closes as an open question): " + "; ".join(f"{k} ({v})" for k, v in parked.items())
@@ -450,6 +458,11 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         if parked:
             flags.append(f"{parked}; closes as an open question unless a new experiment is planned"
                          + (" or `deferred` is removed" if parked.startswith("deferred") else ""))
+        from .artifacts.fields import unrecognised
+
+        odd = [f for f, _ in unrecognised(h.fm, "hypothesis")]
+        if odd:
+            flags.append("fields CRAFT does not read: " + ", ".join(odd))
         if h.post_hoc:
             flags.append("criteria changed after registration (post-hoc)")
         elif h.changed_since_registration:
@@ -469,12 +482,18 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         lims = {v.criterion: len(v.limitations) for v in state.verdicts_for(e.name) if v.limitations}
         judged = ", ".join(f"{k} {v}" + (f" ({lims[k]} limitation{'s' if lims[k] > 1 else ''})" if k in lims else "")
                            for k, v in e.verdicts.items())
+        from .artifacts.fields import unrecognised
+
+        odd = [f for f, _ in unrecognised(e.plan, "plan")]
         extra = "; ".join(x for x in [what, judged, f"{len(e.evidence)} evidence file(s)" if e.evidence else "",
+                                       "fields CRAFT does not read: " + ", ".join(odd) if odd else "",
                                        f"{len(e.explored)} exploratory file(s)" if e.explored else "",
                                        f"abandoned: {e.abandoned}" if e.abandoned else ""] if x)
         lines.append(f"      {e.name:<14} {e.status:<9} {extra}")
     if state.data:
-        lines.append("    Input data: " + ", ".join(f"{d} ({r['path']}, sha256 {r['sha256'][:8]})" for d, r in state.data.items()))
+        from .data import shown_hash
+
+        lines.append("    Input data: " + "; ".join(f"{d} ({r['path']}, {shown_hash(r)})" for d, r in state.data.items()))
     pq = parked_questions(inv, state)
     qs = [q for q in pq if not q.answered]
     done = [q for q in pq if q.answered]

@@ -75,8 +75,15 @@ def _write_record(inv: InvestigationPaths, state: InvestigationState, path: Path
 @app.command()
 def init(host: str = typer.Option("claude-code", help="Host adapter to install."),
          path: Path = typer.Option(Path("."), help="Programme root (default: current directory).")) -> None:
-    """Turn this directory into a CRAFT programme (idempotent; never overwrites your files)."""
+    """Turn this directory into a CRAFT programme, or refresh an existing one: CRAFT's own block in
+    CLAUDE.md, its slash commands and hooks are brought up to the installed version; your files and text are left alone."""
     root = path.resolve()
+    outer = next((p for p in root.parents if (p / PROGRAMME_MARKER).exists()), None)
+    if outer is not None:
+        raise CraftError(
+            f"{root} is inside the CRAFT programme at {outer}; a programme is never created inside another. "
+            f"To refresh that programme, run `craft init` at its root (cd {outer} && craft init)."
+        )
     root.mkdir(parents=True, exist_ok=True)
     created = []
     marker = root / PROGRAMME_MARKER
@@ -99,7 +106,12 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
     for c in created:
         echo(f"  + {c}")
     if not created:
-        echo("  (nothing to do; already initialised)")
+        echo("  (nothing to do; already up to date)")
+    flagged = _unrecognised_report(prog)
+    if flagged:
+        echo("Files with fields CRAFT does not recognise (validation and the board flag them too):")
+        for line in flagged:
+            echo(f"  ! {line}")
     echo("Next: open your GenAI session here and type /craft-help to see your commands "
          "(/craft-approve, /craft-reject, /craft-close, /craft-resolve, /craft-status).")
 
@@ -133,8 +145,9 @@ def _install_claude_code_adapter(root: Path) -> list[str]:
             import re as _re
             pattern = _re.compile(r"<!-- craft:begin -->.*?<!-- craft:end -->\n?", _re.S)
             if pattern.search(text) and pattern.search(text).group(0) != block:
+                old_block = pattern.search(text).group(0)
                 cm.write_text(pattern.sub(lambda m: block, text, count=1), encoding="utf-8")
-                created.append("CLAUDE.md (refreshed CRAFT block; your own text untouched)")
+                created.append("CLAUDE.md (refreshed CRAFT block; your own text untouched)" + _block_changes(old_block, block))
     else:
         cm.write_text(block, encoding="utf-8")
         created.append("CLAUDE.md")
@@ -151,10 +164,49 @@ def _install_claude_code_adapter(root: Path) -> list[str]:
         skill_dir.mkdir(parents=True, exist_ok=True)
         sk = skill_dir / "SKILL.md"
         content = src.read_text(encoding="utf-8")
-        if not sk.exists() or (skill.name != "craft" and sk.read_text(encoding="utf-8") != content):
+        if not sk.exists():
             sk.write_text(content, encoding="utf-8")
-            created.append(f".claude/skills/{skill.name}/SKILL.md")
+            created.append(f".claude/skills/{skill.name}/SKILL.md (new)")
+        elif sk.read_text(encoding="utf-8") != content:  # CRAFT's own commands: brought up to the installed version
+            sk.write_text(content, encoding="utf-8")
+            created.append(f".claude/skills/{skill.name}/SKILL.md (updated)")
     return created
+
+
+def _block_changes(old: str, new: str) -> str:
+    """What a refresh changed in the playbook block, in a few words: sections added/removed, lines changed."""
+    import re as _re
+
+    heads = lambda t: [h.strip() for h in _re.findall(r"^##\s+(.+)$", t, _re.M)]
+    added = [h for h in heads(new) if h not in heads(old)]
+    removed = [h for h in heads(old) if h not in heads(new)]
+    diff = list(difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=0))
+    plus = sum(1 for d in diff if d.startswith("+") and not d.startswith("+++"))
+    minus = sum(1 for d in diff if d.startswith("-") and not d.startswith("---"))
+    parts = [f"{plus} line(s) added, {minus} removed"]
+    if added:
+        parts.append("new sections: " + "; ".join(added))
+    if removed:
+        parts.append("removed sections: " + "; ".join(removed))
+    return " — " + ", ".join(parts) + ". Restart open sessions (or ask the agent to re-read CLAUDE.md)."
+
+
+def _unrecognised_report(prog: Programme) -> list[str]:
+    from .artifacts.fields import unrecognised
+
+    out = []
+    for inv_id in prog.list_investigations():
+        inv = InvestigationPaths(prog.investigation_dir(inv_id))
+        files = [(inv.hypothesis(h), "hypothesis") for h in inv.hypothesis_ids()]
+        files += [(inv.experiment_plan(e), "plan") for e in inv.experiment_names() if inv.experiment_plan(e).exists()]
+        for path, kind in files:
+            try:
+                fm, _ = read_doc(path)
+            except CraftError:
+                continue
+            for field_, msg in unrecognised(fm, kind):
+                out.append(f"investigations/{inv_id}/{inv.rel(path)}: `{field_}` {msg}")
+    return out
 
 
 def _merge_settings(current: dict, ours: dict) -> bool:
@@ -308,9 +360,13 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     for r in results:
         echo(r.render())
         ok = ok and r.ok
+    from .artifacts.fields import unrecognised
+
     for h in ideas:
         echo(f"hypotheses/{h}.md: a parked idea (claim only), valid as an idea. To review it, flesh it out into a full "
              f"draft ({', '.join(DESIGN_FIELDS)}); `craft validate {h} --full` lists each missing element.")
+        for field_, msg in unrecognised(read_doc(inv.hypothesis(h))[0], "hypothesis"):
+            echo(f"  [warning] {field_}: {msg}")
     for r in notes:
         echo(f"{r.artifact}: incomplete draft (`craft validate {Path(r.artifact).stem}` for details)")
     if artifact == "all":
@@ -741,20 +797,24 @@ def data_add(path: Path = typer.Argument(..., help="A data file or directory ins
     state.require_phase(Phase.FRAMING, Phase.OPEN, Phase.CLOSING, action="record data")
     rec, new = data_mod.add(prog, state, path, data_id, note)
     state.save(inv.root)
-    what = f"{len(rec['files'])} file(s)" if rec["kind"] == "dir" else "1 file"
-    echo(f"Data '{data_id}' {'recorded' if new else 'already recorded, unchanged'}: {rec['path']} ({what}, sha256 "
-         f"{rec['sha256'][:12]}). Evidence naming data_id '{data_id}' is checked against it; `craft verify` detects any change.")
+    echo(f"Data '{data_id}' {'recorded' if new else 'already recorded, unchanged'}: {rec['path']} ({data_mod.shown_hash(rec)}). "
+         f"Evidence naming data_id '{data_id}' is checked against it; `craft verify` detects any change.")
 
 
 @data_app.command("list")
 def data_list(inv_id: Optional[str] = INV_OPT) -> None:
     """The recorded input data of an investigation."""
+    from . import data as data_mod
+
     prog, inv, state = _ctx(inv_id)
     if not state.data:
         echo("No input data recorded yet (`craft data add <path> --id <data_id>`).")
     for did, rec in state.data.items():
-        echo(f"{did}: {rec['path']} ({rec['kind']}, {len(rec['files'])} file(s), sha256 {rec['sha256'][:12]}, {rec['when'][:10]})"
+        echo(f"{did}: {rec['path']} ({data_mod.shown_hash(rec)}, recorded {rec['when'][:10]})"
              + (f" — {rec['note']}" if rec.get("note") else ""))
+        if rec["kind"] == "dir":
+            for name, f in sorted(rec["files"].items()):
+                echo(f"    {name}: sha256 {f['sha256']}")
 
 
 def _check_data(prog: Programme, state: InvestigationState, data_ids: list) -> list[dict]:
@@ -770,7 +830,8 @@ def _check_data(prog: Programme, state: InvestigationState, data_ids: list) -> l
         if p:
             raise CraftError(f"{p}. A verdict cannot cite data that differs from what was recorded; the researcher "
                              "reviews what happened (`craft verify`), and new data is recorded under a new id.")
-        out.append({"id": str(did), "path": rec["path"], "sha256": rec["sha256"]})
+        out.append({"id": str(did), "path": rec["path"], "sha256": rec["sha256"],
+                    **({"file_sha256": rec["files"]["."]["sha256"]} if rec["kind"] == "file" else {})})
     return out
 
 
@@ -782,9 +843,13 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
             metric: Optional[str] = typer.Option(None, "--metric", help="Metric key in the evidence file (default: the criterion's metric)."),
             exploratory: list[Path] = typer.Option([], "--exploratory", help="Exploratory dirs/files to link for transparency (never evidence)."),
             seed: list[str] = typer.Option([], "--seed"), data_id: list[str] = typer.Option([], "--data-id"),
+            dry_run: bool = typer.Option(False, "--dry-run", help="Check that an evidence file (anywhere, e.g. a dry run on "
+                                         "synthetic data) would be accepted for this criterion. Records nothing; shows no label."),
             inv_id: Optional[str] = INV_OPT) -> None:
     """Compute a verdict for one criterion from an evidence file, against the registered threshold."""
     prog, inv, state = _ctx(inv_id)
+    if dry_run:
+        return _dry_run(prog, inv, state, criterion, evidence, metric, seed, data_id)
     state.require_untainted("file a verdict")
     if state.phase == Phase.FRAMING:
         raise CraftError("the problem statement has not been approved yet; verdicts come after `/craft-approve` and review.")
@@ -957,6 +1022,57 @@ def correct(entry_id: str = typer.Argument(..., help="Memory entry id, e.g. Q-00
     echo(_decide(lambda prog: decisions.correct(prog, entry_id, note, evidence, _tty_confirm, "terminal")))
 
 
+def _dry_run(prog: Programme, inv: InvestigationPaths, state: InvestigationState, criterion: str, evidence: Path,
+             metric: Optional[str], seed: list[str], data_id: list[str]) -> None:
+    """Would `craft verdict` accept this evidence file for this criterion? A format check only: it never
+    records anything and never computes a label, so it cannot be used to look at a result early."""
+    from .artifacts.verdict import _block
+
+    pfm, _ = read_doc(inv.problem)
+    kills = {k["id"]: k for k in kill_criteria(pfm)}
+    if ":" not in criterion and criterion in kills:
+        crit, label = kills[criterion], f"kill criterion {criterion}"
+    else:
+        if ":" in criterion:
+            hid, cname = criterion.split(":", 1)
+        else:
+            hits = [h.id for h in registry.all_hypotheses(inv, state) if criterion in h.criteria]
+            if len(hits) != 1:
+                raise CraftError(f"'{criterion}' names {len(hits)} criteria; write it as <H>:{criterion}")
+            hid, cname = hits[0], criterion
+        hv = registry.hyp_view(inv, state, hid)
+        if cname not in hv.criteria:
+            raise CraftError(f"{hid} has no criterion {cname} ({', '.join(hv.criteria) or 'none'})")
+        crit = hv.criteria[cname]
+        label = f"{hid}:{cname} ({'as registered' if hv.rec.registered_sha256 else 'as drafted; not registered yet'})"
+    ev = evidence.resolve()
+    if not ev.is_file():
+        raise CraftError(f"{evidence} does not exist")
+    data = load_evidence(ev)
+    name = metric or crit["metric"]
+    det = crit.get("deterministic") or None
+    problems = missing_fields(data, name, seed, data_id, det)
+    for did in (data_id or [(_block(data, name) or {}).get("data_id") or data.get("data_id")]):
+        rec = state.data.get(str(did)) if did else None
+        if rec:
+            from . import data as data_mod
+
+            p = data_mod.check(prog, str(did), rec, full=True)
+            if p:
+                problems.append(p)
+    if problems:
+        echo(f"DRY RUN — {evidence} would NOT be accepted for {label}. Everything missing:")
+        for p in problems:
+            echo(f"  - {p}")
+        raise typer.Exit(code=1)
+    m = extract(data, name, det)
+    how = {"values": f"{m.n} per-run values (t interval)", "ci": "a supplied interval",
+           "deterministic": f"a single value (deterministic: {det})"}[m.source]
+    echo(f"DRY RUN — {evidence} would be accepted for {label}: metric {name} with {how}; seeds and data_id present. "
+         "Nothing was recorded and no label was computed. For the real verdict the file must be under "
+         "experiments/<exp>/evidence/ and produced after registration.")
+
+
 def _resolve_criterion(inv: InvestigationPaths, state: InvestigationState, ref: str, kills: dict) -> tuple[str, str]:
     """`H1:C1`, or a bare `C1` when exactly one registered hypothesis has it."""
     if ":" in ref:
@@ -1013,7 +1129,9 @@ def _exploratory_links(inv: InvestigationPaths, experiment: str, exploratory: li
 
 
 def _data_lines(state: InvestigationState, data_ids: list, data_records: list[dict]) -> list[str]:
-    lines = [f"Data {r['id']}: {r['path']} as recorded (sha256 {r['sha256'][:12]})" for r in data_records]
+    lines = [f"Data {r['id']}: {r['path']} as recorded ("
+             + (f"sha256 {r['file_sha256']}" if r.get("file_sha256") else f"manifest sha256 {r['sha256'][:12]}") + ")"
+             for r in data_records]
     if state.data:
         unrecorded = [str(d) for d in data_ids if str(d) not in state.data]
         if unrecorded:

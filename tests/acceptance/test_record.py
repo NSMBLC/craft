@@ -228,7 +228,7 @@ def test_input_data_is_recorded_and_a_change_is_held(programme: Craft):
     snap = c.write("data/prices/etf.csv", "date,spy\n2026-01-02,100\n")
     c.write("data/prices/meta.json", "{}")
     r = c("data", "add", "data/prices", "--id", "corpus-2026-09-snapshot", "--inv", inv)
-    assert r.code == 0 and "2 file(s)" in r.out, r.text
+    assert r.code == 0 and "manifest sha256" in r.out and "over 2 files" in r.out, r.text
     assert c.hook("Write", file_path=str(snap), content="x").code == 2
     assert c.hook("Bash", command=f"echo x >> {snap}").code == 2
     plan(c, inv, "exp1", "description: d\ntests: [H1:C1]")
@@ -371,3 +371,70 @@ def test_one_glossary_for_the_words_on_the_board(programme: Craft):
                  "planned", "run", "done", "abandoned", "exploratory", "dropped", "deferred", "limitation",
                  "correction", "answered", "post-hoc", "deterministic", "mechanical"):
         assert word in terms, word
+
+
+@pytest.mark.checkpoint("9.16")
+def test_refresh_reports_changes_and_never_nests(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    # inside an existing programme, init refuses and points at the root
+    sub = c.root / "investigations" / inv / "experiments" / "pilot"
+    sub.mkdir(parents=True)
+    r = c("init", "--path", str(sub))
+    assert r.code != 0 and "inside the CRAFT programme at" in r.err and not (sub / "craft.yaml").exists()
+    # a refresh brings CRAFT's own files up to date, says what changed, and leaves the researcher's text alone
+    cm = c.root / "CLAUDE.md"
+    cm.write_text("# My notes\n\n" + cm.read_text().replace("## The hard rules", "## Old rules"))
+    skill = c.root / ".claude" / "skills" / "craft" / "SKILL.md"
+    skill.write_text("old")
+    c.write(f"investigations/{inv}/hypotheses/H2.md", "---\nclaim: an idea.\nwaits_on: [H1]\n---\n")
+    r = c("init", "--path", str(c.root))
+    assert r.code == 0, r.text
+    assert "refreshed CRAFT block" in r.out and "new sections: The hard rules" in r.out and "removed sections: Old rules" in r.out
+    assert ".claude/skills/craft/SKILL.md (updated)" in r.out and skill.read_text() != "old"
+    assert cm.read_text().startswith("# My notes")
+    assert "hypotheses/H2.md: `waits_on` was removed" in r.out
+    # retired and unknown fields are flagged in validation and on the board too
+    v = c("validate", "H2", "--inv", inv)
+    assert "[warning] waits_on: was removed" in v.out
+    assert "fields CRAFT does not read: waits_on" in c("status").out
+
+
+@pytest.mark.checkpoint("9.17")
+def test_evidence_can_be_checked_before_the_real_run(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    dry = c.write("scratch/synthetic.json", json.dumps({"metric": "accuracy_gain", "value": 1.2}))
+    r = c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", str(dry), "--dry-run", "--inv", inv)
+    assert r.code != 0 and "would NOT be accepted" in r.out and "uncertainty for 'accuracy_gain'" in r.out and "seeds: missing" in r.out
+    ev(c, "scratch/synthetic.json", "accuracy_gain", [1.0, 1.1, 0.9])
+    r = c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", str(dry), "--dry-run", "--inv", inv)
+    assert r.code == 0 and "would be accepted" in r.out and "3 per-run values" in r.out
+    assert "SUPPORTED" not in r.out and "REFUTED" not in r.out and "INCONCLUSIVE" not in r.out  # never a label
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())
+    assert st["verdicts"] == [] and not any("scratch" in k for k in st["records"])
+    # works for a criterion that is only drafted, and for kill criteria
+    c.write(f"investigations/{inv}/hypotheses/H2.md", HYP_FIXED_O2)
+    assert "as drafted; not registered yet" in c("verdict", "x", "--criterion", "H2:C1", "--evidence", str(dry), "--dry-run", "--inv", inv).out
+    ev(c, "scratch/k1.json", "pilot_loss", [1.0, 1.2])
+    assert c("verdict", "x", "--criterion", "K1", "--evidence", str(c.root / "scratch" / "k1.json"), "--dry-run", "--inv", inv).code == 0
+
+
+def test_single_data_file_shows_its_own_hash(programme: Craft):
+    import hashlib
+    c = programme
+    inv = open_inv(c)
+    f = c.write("data/prices.csv", "date,spy\n2026-01-02,100\n")
+    own = hashlib.sha256(f.read_bytes()).hexdigest()
+    r = c("data", "add", "data/prices.csv", "--id", "prices", "--inv", inv)
+    assert f"sha256 {own}" in r.out
+    assert own in c("data", "list", "--inv", inv).out and f"sha256 {own}" in c("status").out
+
+
+def test_an_investigation_with_nothing_registered_says_so(programme: Craft):
+    c = programme
+    assert c("new", "inv-p", "--topic", "a paused question about drawdowns").code == 0
+    c.write("investigations/inv-p/problem.md", PROBLEM.replace("id: inv-001", "id: inv-p"))
+    typed(c, "/craft-approve --inv inv-p")
+    why = board(c, "inv-p")["next"]["why"]
+    assert why.startswith("no hypothesis is registered yet") and "every registered hypothesis" not in why

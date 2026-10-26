@@ -43,9 +43,11 @@ claude            # open Claude Code here from now on
 
 `craft init` creates `craft.yaml`, `memory/`, `archive/`, `investigations/`, and installs the
 Claude Code adapter: `.claude/settings.json` (hooks + deny rules), a `CLAUDE.md` block with the
-agent playbook, and the `/craft` slash commands. It never overwrites files you already have. Run it
-again in an existing programme after upgrading CRAFT: it refreshes the playbook block and the slash
-commands, and leaves your own text alone.
+agent playbook, and the `/craft` slash commands. Run it again at the root of an existing programme after
+upgrading CRAFT: it brings CRAFT's own parts (the playbook block in `CLAUDE.md`, the slash commands, the
+hooks) up to the installed version, prints what changed, flags fields in your files that CRAFT no longer
+reads, and leaves your own text and files alone. Run from a subfolder of a programme, it refuses rather
+than create a programme inside it.
 
 ## Every day
 

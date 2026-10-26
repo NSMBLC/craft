@@ -203,7 +203,8 @@ def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
             broken += 0 if now == d["sha256"] else 1
         except CraftError:
             state_ = "not present here (recorded hash kept)"
-        out.append(f"  data {d['id']} {d['path']} (sha256 {d['sha256'][:12]}): {state_}")
+        shown = f"sha256 {d['file_sha256']}" if d.get("file_sha256") else f"manifest sha256 {d['sha256'][:12]}"
+        out.append(f"  data {d['id']} {d['path']} ({shown}): {state_}")
     broken += _check_correction_evidence(prog, rec, out)
     out.append("Every link resolves." if not broken else f"{broken} link(s) do not resolve.")
     return "\n".join(out), broken

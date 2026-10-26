@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..util import read_doc
 from .common import Validation, nonempty
+from .fields import unrecognised
 
 OPS = {"<", "<=", ">", ">=", "==", "!="}
 REQUIRED_OUTCOMES = ("supported", "refuted", "inconclusive")
@@ -18,6 +19,8 @@ REQUIRED_OUTCOMES = ("supported", "refuted", "inconclusive")
 def validate_hypothesis(path: Path) -> Validation:
     v = Validation(f"hypotheses/{path.name}")
     fm, body = read_doc(path)
+    for field_, msg in unrecognised(fm, "hypothesis"):
+        v.warn(field_, msg)
 
     claim = fm.get("claim")
     if not nonempty(claim):

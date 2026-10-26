@@ -257,6 +257,12 @@ it will close as an open question, and the next step points at what is actually 
 way of stopping something, each way of fixing the record) has one line in a glossary she can open from the
 board, saying what it means and what happens to it at closure. ✓9.15
 
+When CRAFT itself is upgraded, refreshing the programme brings its rules and commands up to date and
+says what changed, leaves her own text alone, and flags any field in her files that CRAFT no longer
+reads; run from a subfolder, it refuses to create a programme inside the programme. ✓9.16 Before an
+expensive run, the agent checks a dry-run evidence file against each criterion as written; CRAFT says
+whether it would be accepted and what is missing, records nothing, and shows no label. ✓9.17
+
 ---
 
 ## Coverage map
@@ -268,7 +274,7 @@ board, saying what it means and what happens to it at closure. ✓9.15
 | 3. Late confounds | 3.1 (rival explanations), 4.2 |
 | 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7 |
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2 |
-| 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9 |
+| 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17 |
 | 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
 | 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |

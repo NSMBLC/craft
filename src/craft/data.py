@@ -36,6 +36,16 @@ def snapshot(prog: Programme, path: Path) -> dict:
     return {"path": rel.as_posix(), "kind": "file" if p.is_file() else "dir", "files": files, "sha256": combined(files)}
 
 
+def shown_hash(rec: dict) -> str:
+    """The hash to show a reader, said plainly: a file's own sha256, or a directory's manifest hash.
+
+    (`sha256` in the record is always the manifest hash over path + file hash, which differs from
+    a file's own sha256; that is what other tools and reports record, so it is the one shown.)"""
+    if rec.get("kind") == "file":
+        return f"sha256 {rec['files']['.']['sha256']}"
+    return f"manifest sha256 {rec['sha256'][:12]} over {len(rec['files'])} files (each file's own hash: `craft data list`)"
+
+
 def combined(files: dict) -> str:
     h = hashlib.sha256()
     for k in sorted(files):

@@ -49,8 +49,9 @@ follow them, and fix everything a refusal lists before retrying.
 5. **Experiments.** Write the plan before running. Record the input data criteria depend on
    (`craft data add`) and the environment (`craft lock <lock file>`) before the first verdict; a new
    package is `craft propose package <pkg> --reason ...`, then stop until the researcher decides.
-   Judge each criterion with `craft verdict <exp> --criterion H1:C1 --evidence <file>`, and kill
-   criteria the same way (`--criterion K1`). A met kill criterion halts everything: stop and report.
+   Before an expensive run, check a dry-run evidence file with `craft verdict ... --dry-run`. Judge each
+   criterion with `craft verdict <exp> --criterion H1:C1 --evidence <file>`, and kill criteria the
+   same way (`--criterion K1`). A met kill criterion halts everything: stop and report.
 6. **After every verdict or new source, suggest** up to three follow-ups (a question, hypothesis or
    experiment) with `derived_from:` pointing at what prompted them. Write only the ones the researcher
    accepts.
