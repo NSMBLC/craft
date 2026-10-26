@@ -481,3 +481,31 @@ def test_how_data_were_derived_reaches_the_referee(programme: Craft):
     assert how in c("data", "list", "--inv", inv).out
     _, user = build_round1_prompt(InvestigationPaths(c.root / "investigations" / inv), "H1")
     assert "recorded input data" in user and how in user
+
+
+@pytest.mark.checkpoint("9.20")
+def test_sources_carry_over_from_an_archived_investigation(programme: Craft):
+    import yaml
+
+    c = programme
+    inv = open_inv(c)
+    ft = c.write(f"investigations/{inv}/literature/kim2024.txt", "full text of kim2024 " * 50)
+    assert c("lit", "add", "kim2024", "--title", "Retriever scaling", "--fulltext", str(ft), "--claims", "c",
+             "--method", "m", "--relation", "supports", "--does-not-cover", "d", "--inv", inv).code == 0
+    assert c("lit", "add", "lee2025", "--title", "Short note", "--abstract-only", "--reason", "paywalled", "--inv", inv).code == 0
+    close(c)
+    assert c("new", "inv-002", "--topic", "does the advantage hold on a second corpus").code == 0
+    r = c("lit", "carry", inv, "--inv", "inv-002")
+    assert r.code == 0 and "Carried 2 source(s)" in r.out, r.text
+    lit = c.root / "investigations" / "inv-002" / "literature"
+    by = {s["key"]: s for s in yaml.safe_load((lit / "sources.yaml").read_text())["sources"]}
+    assert by["kim2024"]["fulltext"] == "investigations/inv-002/literature/kim2024.txt"
+    assert (lit / "kim2024.txt").read_text() == "full text of kim2024 " * 50  # found in the archive by its hash
+    assert by["kim2024"]["carried_from"]["investigation"] == inv and by["lee2025"]["status"] == "abstract-only"
+    assert "already in this investigation" in c("lit", "carry", inv, "--inv", "inv-002").out
+    # a full text whose contents no longer match its record is not carried
+    (c.root / "archive" / inv / "literature" / "kim2024.txt").write_text("edited")
+    assert c("new", "inv-003", "--topic", "a third question on retrieval scaling").code == 0
+    r = c("lit", "carry", inv, "--key", "kim2024", "--inv", "inv-003")
+    assert "Carried 0" in r.out and "not found with the recorded hash" in r.out
+    assert c("lit", "carry", inv, "--key", "nope", "--inv", "inv-003").code != 0

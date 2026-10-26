@@ -130,3 +130,65 @@ def lint_priority_claims(doc: Path, sources: Path) -> list[str]:
                 "Replace the assertion with the delta against it."
             )
     return problems
+
+
+def _find_fulltext(root: Path, src_dir: Path, src_id: str, ft: str, digest: str) -> Path | None:
+    """The source investigation's full text, wherever it now is, if its contents still match the record."""
+    p = Path(ft)
+    candidates = [p] if p.is_absolute() else [root / p, src_dir / p]
+    rel = p.as_posix()
+    for prefix in (f"investigations/{src_id}/", f"archive/{src_id}/"):
+        if rel.startswith(prefix):
+            candidates.append(src_dir / rel[len(prefix):])
+    candidates.append(src_dir / "literature" / p.name)
+    for c in candidates:
+        if c.is_file() and sha256_file(c) == digest:
+            return c
+    return None
+
+
+def carry_sources(root: Path, src_dir: Path, src_id: str, lit_dir: Path, sources: Path,
+                  keys: list[str]) -> tuple[list[str], list[str]]:
+    """Copy sources (records and full texts) from another investigation into this one.
+
+    Each carried entry keeps its fields and full-text hash, gets today's `added`, and says where it came
+    from (`carried_from`). A full text is copied into this investigation's literature/ only when its
+    contents still match the recorded hash. The closest prior work and the delta are not carried: they
+    are judged against this investigation's question. Returns (carried keys, skipped with reasons).
+    """
+    src = load_sources(src_dir / "literature" / "sources.yaml")
+    by_key = {s.get("key"): s for s in src["sources"]}
+    unknown = [k for k in keys if k not in by_key]
+    if unknown:
+        raise CraftError(f"{src_id} has no source {', '.join(unknown)} (it has: {', '.join(map(str, by_key)) or 'none'})")
+    data = load_sources(sources)
+    have = {s.get("key") for s in data["sources"]}
+    carried, skipped = [], []
+    for key in keys or list(by_key):
+        s = by_key[key]
+        if key in have:
+            skipped.append(f"{key}: already in this investigation")
+            continue
+        entry = {k: v for k, v in s.items() if k not in ("added", "carried_from")}
+        entry["added"] = now_iso()
+        entry["carried_from"] = {"investigation": src_id, "added": s.get("added"),
+                                 **({"fulltext": s.get("fulltext")} if s.get("fulltext") else {})}
+        if s.get("status") == "used":
+            found = _find_fulltext(root, src_dir, src_id, str(s.get("fulltext") or ""), str(s.get("fulltext_sha256") or ""))
+            if found is None:
+                skipped.append(f"{key}: its full text is not found with the recorded hash; add it again with "
+                               "`craft literature add` (read it in full, or --abstract-only)")
+                continue
+            dest = lit_dir / found.name
+            if dest.exists() and sha256_file(dest) != s["fulltext_sha256"]:
+                skipped.append(f"{key}: {dest.name} already exists in literature/ with different contents")
+                continue
+            lit_dir.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                dest.write_bytes(found.read_bytes())
+            entry["fulltext"] = dest.relative_to(root).as_posix()
+        data["sources"].append(entry)
+        carried.append(key)
+    if carried:
+        write_yaml(sources, data)
+    return carried, skipped
