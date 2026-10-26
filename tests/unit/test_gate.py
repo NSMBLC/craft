@@ -139,3 +139,17 @@ def test_bash_screen_reads_open_modes_not_paths(tmp_path):
     for cmd in ("python -c \"open('x.json', 'w')\"", "python -c \"open(p, mode='a')\"", "python -c \"open(p, 'r+')\"",
                 "python -c \"Path(p).open('wb')\"", "python -c \"open(p, 'x')\""):
         assert writes(cmd), cmd
+
+
+def test_bash_screen_copy_reads_sources_writes_destination(tmp_path):
+    root = tmp_path.resolve()
+    (root / "craft.yaml").write_text("version: 1\n")
+    (root / "archive").mkdir()
+    prog = Programme(root)
+    assert decide_bash(prog, "mkdir -p notes/lit && cp archive/inv-1/literature/kim.pdf notes/lit/", root).allow
+    assert decide_bash(prog, "rsync -a archive/inv-1/literature/ notes/lit/", root).allow
+    assert decide_bash(prog, "cp -t notes/lit archive/inv-1/a.pdf archive/inv-1/b.pdf", root).allow
+    assert not decide_bash(prog, "cp notes/x.json archive/inv-1/verdict.md", root).allow
+    assert not decide_bash(prog, "cp -t archive/inv-1 notes/x.json", root).allow
+    assert not decide_bash(prog, "cp a.txt b.txt > memory/findings.jsonl", root).allow
+    assert not decide_bash(prog, "mv archive/inv-1/a.pdf notes/", root).allow  # mv removes its source

@@ -353,3 +353,21 @@ def test_abandoned_or_deferred_hypotheses_are_not_pending_work(programme: Craft)
     close(c)
     q = next(x for x in memory(c, "open") if x["question"].startswith("untested H1"))
     assert "not tested by decision (deferred: QPU time reserved for November)" in q["context"]
+
+
+@pytest.mark.checkpoint("9.15")
+def test_one_glossary_for_the_words_on_the_board(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    assert "/craft-glossary" in c("status").out
+    r = c("glossary", "deferred")
+    assert r.code == 0 and "deferred:" in r.out and "At closure: open question, with the reason." in r.out
+    out = typed(c, "/craft-glossary")
+    assert "<craft-info>" in out and "Stopping:" in out and "Fixing the record:" in out and "limitation:" in out
+    # every status word the board can show has an entry
+    from craft.glossary import GLOSSARY
+    terms = " ".join(t for _, t, _, _ in GLOSSARY)
+    for word in ("idea", "draft", "in review", "registered", "not being tested", "supported", "refuted", "inconclusive",
+                 "planned", "run", "done", "abandoned", "exploratory", "dropped", "deferred", "limitation",
+                 "correction", "answered", "post-hoc", "deterministic", "mechanical"):
+        assert word in terms, word

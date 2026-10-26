@@ -11,6 +11,9 @@ Look especially for:
 - confounds not covered by the listed rival explanations, or rivals without a real discriminator
 - criteria whose threshold, metric or conditions leave room to move after the data arrive
 - power/planned runs too small to detect the claimed effect
+- a criterion judged by an interval although its metric has no run-to-run spread (exact computation
+  on fixed inputs), or a criterion declared `deterministic` although its metric can vary between runs
+  (a declared criterion is judged on a single value, with no interval)
 - outcome rules that do not cover every case, or that let "inconclusive" masquerade as support
 - claims of novelty not backed by the named closest prior work
 

@@ -229,6 +229,49 @@ def _evidence_write(state: InvestigationState, exp: str, inv: InvestigationPaths
 
 # ---------------------------------------------------------------- bash screening
 
+_SEPARATORS = {";", "&&", "||", "|", "&", "\n"}
+_COPY_PROGRAMS = {"cp", "rsync"}  # read every source, write only the destination
+
+
+def _write_candidates(command: str) -> list[str]:
+    """Tokens that may name a file the command writes. For `cp`/`rsync` only the destination (the last
+    argument, or `-t DIR`) and redirect targets count: their sources are only read."""
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:
+        return command.split()
+    out: list[str] = []
+    seg: list[str] = []
+    for tok in tokens + [";"]:
+        if tok not in _SEPARATORS:
+            seg.append(tok)
+            continue
+        words = [t for t in seg if not re.fullmatch(r"\w+=.*", t)]  # leading VAR=value assignments
+        while words and words[0] in ("sudo", "command", "env", "time", "nice"):
+            words = words[1:]
+        if words and PurePosixPath(words[0]).name in _COPY_PROGRAMS:
+            redirect_targets = [seg[i + 1] for i, t in enumerate(seg[:-1]) if re.fullmatch(r"\d*>{1,2}|&>", t)]
+            args, dest, skip = [], None, False
+            for i, t in enumerate(words[1:], start=1):
+                if skip:
+                    skip = False
+                    continue
+                if t in ("-t", "--target-directory") and i + 1 < len(words):
+                    dest, skip = words[i + 1], True
+                elif t.startswith("--target-directory="):
+                    dest = t.split("=", 1)[1]
+                elif re.fullmatch(r"\d*>{1,2}|&>|<", t):
+                    skip = True
+                elif not t.startswith("-"):
+                    args.append(t)
+            out += [dest or (args[-1] if args else "")] + redirect_targets
+        else:
+            out += seg
+        seg = []
+    return [t for t in out if t]
+
 def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decision:
     """Screen a shell command the agent wants to run.
 
@@ -248,10 +291,7 @@ def decide_bash(prog: Programme, command: str, cwd: Path | None = None) -> Decis
     if not mutation:
         return Decision.ok()
     base = cwd or Path.cwd()
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        tokens = command.split()
+    tokens = _write_candidates(command)
     seen: set[str] = set()
     for tok in tokens:
         tok = tok.strip("'\"`;,()")

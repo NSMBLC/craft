@@ -64,13 +64,13 @@ autocomplete; the plain `craft ...` forms also work typed as a message or in a t
 /craft-close              # close whenever you choose; memory is written here only
 /craft-resolve --note "…" # clear an integrity hold
 /craft-correct <id> --note "…"  # correct a memory entry that turned out wrong (shown with it everywhere)
-/craft-status  /craft-help  /craft-decisions  /craft-explain <id>   # answered directly, no model turn
+/craft-status  /craft-help  /craft-glossary  /craft-decisions  /craft-explain <id>   # answered directly
 ```
 
 `/craft-status` is the board: every hypothesis (draft, in review, registered, supported, refuted,
 inconclusive), every experiment (planned, run, done; an exploratory one counts as run once it has
 output), the open and answered questions, the recorded input data, and whose
-turn it is.
+turn it is. `/craft-glossary` says what each word on it means and what happens to it at closure.
 
 A registered hypothesis whose experiments were all abandoned, or that you defer (`deferred: <reason>`),
 is shown as not being tested and will close as an open question; the board does not list it as work.

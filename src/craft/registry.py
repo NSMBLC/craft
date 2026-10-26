@@ -485,6 +485,8 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
             lines.append(f"      - {_short(q.text, 80)}")
         for q in done[:3]:
             lines.append(f"      - answered: {_short(q.text, 60)} <- {q.pointer or '(no pointer given)'}")
+        if qs:
+            lines.append("      (when one is answered, add `answered: <pointer>` to its bullet)")
     return "\n".join(lines)
 
 

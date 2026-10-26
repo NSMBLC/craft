@@ -225,9 +225,9 @@ def correct(prog: Programme, entry_id: str, note: str, evidence: Path | None, co
 # Accepted forms: `/craft-approve` (slash skill), `/craft approve`, `craft approve`, each with optional
 # subject and options. Read-only queries (status, help, decisions, explain) use the same channel.
 DECISION_VERBS = ("approve", "reject", "close", "reopen", "resolve", "correct")
-QUERY_VERBS = ("status", "help", "decisions", "explain")
+QUERY_VERBS = ("status", "help", "decisions", "explain", "glossary")
 TYPED_RE = re.compile(
-    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve|reject|close|reopen|resolve|correct|status|help|decisions|explain)\b(.*)$",
+    r"^\s*(?:/craft[-\s]\s*|craft\s+)(approve|reject|close|reopen|resolve|correct|status|help|decisions|explain|glossary)\b(.*)$",
     re.S,
 )
 SUBJECTS = {"approve": {"problem", "package", None}, "reject": {"package", None}, "reopen": {"problem", "review"},
@@ -257,6 +257,11 @@ def parse_typed(prompt: str) -> tuple[str, dict] | None:
             return None
         opts["arg"] = toks[0]
         return "explain", opts
+    if verb == "glossary":
+        if len(toks) > 1:
+            return None
+        opts["arg"] = toks[0] if toks else None
+        return "glossary", opts
     if toks and not toks[0].startswith("-"):
         opts["subject"] = toks.pop(0)
     if verb == "correct":
@@ -339,6 +344,10 @@ def run_query(prog: Programme, verb: str, o: dict) -> str:
     if verb == "explain":
         text, _broken = explain_text(prog, o["arg"])
         return text
+    if verb == "glossary":
+        from .glossary import glossary_text
+
+        return glossary_text(o["arg"])
     raise CraftError(f"unknown query '{verb}'")
 
 

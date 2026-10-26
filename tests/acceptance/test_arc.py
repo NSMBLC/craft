@@ -287,7 +287,9 @@ def test_06_literature_used_vs_rejected(arc: Craft):
     r = arc("lit", "add", "zhao2025", "--title", "Long-context retrieval", "--abstract-only", "--inv", INV)
     assert r.code != 0 and "--reason" in r.err
     r = arc("lit", "add", "zhao2025", "--title", "Long-context retrieval", "--abstract-only", "--reason", "paywalled; abstract only", "--inv", INV)
-    assert r.code == 0
+    assert r.code == 0 and "abstract-only (citable for context; never backs a claim)" in r.out
+    r = arc("lit", "add", "lee2023", "--title", "Short-input reranking", "--rejected", "--reason", "short inputs only; off-topic", "--inv", INV)
+    assert r.code == 0 and "rejected (consulted and set aside)" in r.out
     r = arc("lit", "add", "kim2024", "--title", "Retriever scaling", "--fulltext", str(arc.root / "missing.pdf"), "--inv", INV)
     assert r.code != 0 and "full text" in r.err
     ft = arc.write("papers/kim2024.txt", "full text of kim2024 " * 50)
@@ -303,7 +305,7 @@ def test_06_literature_used_vs_rejected(arc: Craft):
     from craft.util import read_yaml
     data = read_yaml(arc.root / "investigations" / INV / "literature" / "sources.yaml")
     by = {s["key"]: s for s in data["sources"]}
-    assert by["zhao2025"]["status"] == "rejected" and by["kim2024"]["status"] == "used"
+    assert by["zhao2025"]["status"] == "abstract-only" and by["lee2023"]["status"] == "rejected" and by["kim2024"]["status"] == "used"
     assert by["kim2024"]["does_not_cover"] and by["kim2024"]["fulltext_sha256"] and by["kim2024"]["added"]
 
 

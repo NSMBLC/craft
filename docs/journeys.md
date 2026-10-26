@@ -53,7 +53,8 @@ sound. ✓1.7
 Elena asks the agent to map prior work — and, later, to search again whenever results raise
 something new. Some time later she reads the result: each source
 the agent claims to have used was actually retrieved and read — anything it could only see
-as an abstract is listed separately as consulted-and-rejected, with a one-line reason.
+as an abstract is listed separately as abstract-only (citable for context, never backing a claim),
+and anything set aside as rejected, each with a one-line reason.
 ✓2.1 Each source is mapped by what it claims, how, whether it supports or conflicts with
 her direction, and — the field she reads most carefully — what it does *not* cover. ✓2.2
 
@@ -252,7 +253,9 @@ registered hypothesis came from, or adding a note to it, leaves its registration
 a change to what review judged (claim, warrant, criteria, outcome rule, rivals, predictions, power) counts
 as an edit. ✓9.13 When she stops a hypothesis's only experiment, or defers a registered hypothesis by
 decision, the board stops listing it as work for the agent: it says why it is not being tested and that
-it will close as an open question, and the next step points at what is actually next. ✓9.14
+it will close as an open question, and the next step points at what is actually next. ✓9.14 Every word the board uses (each status, each
+way of stopping something, each way of fixing the record) has one line in a glossary she can open from the
+board, saying what it means and what happens to it at closure. ✓9.15
 
 ---
 
@@ -266,7 +269,7 @@ it will close as an open question, and the next step points at what is actually 
 | 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7 |
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2 |
 | 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9 |
-| 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14 |
+| 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
 | 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |
 | 10. Forced linearity | 8.1, 8.2, 8.3 |

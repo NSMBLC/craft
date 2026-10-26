@@ -69,3 +69,17 @@ def test_outcome_branch_that_points_elsewhere_is_flagged(tmp_path):
                  "  inconclusive: anything else\n---\n")
     found = [f for f in validate_hypothesis(p).findings if f.field == "outcome_rule.refuted"]
     assert found and found[0].severity == "warning" and "state the condition in words" in found[0].problem
+
+
+def test_referee_is_asked_about_deterministic_criteria():
+    from importlib import resources
+    text = resources.files("craft.templates").joinpath("referee_round1.md").read_text()
+    assert "declared `deterministic` although its metric can vary" in text
+
+
+def test_agent_instructions_stay_short():
+    """Field-level guidance lives in messages and the glossary; the playbook stays readable (#49)."""
+    from importlib import resources
+    text = resources.files("craft.adapters.claude_code").joinpath("CLAUDE.md").read_text()
+    assert len(text.splitlines()) <= 80
+    assert "craft glossary" in text

@@ -31,7 +31,7 @@ from .util import CraftError, now_iso, read_doc, sha256_file, write_yaml
 
 app = typer.Typer(help="CRAFT: disciplined computational research inside a GenAI session.", no_args_is_help=True,
                   add_completion=False)
-lit_app = typer.Typer(help="Literature map: sources read in full vs consulted-and-rejected (Journey 2). Open at any time.", no_args_is_help=True)
+lit_app = typer.Typer(help="Literature map: sources read in full, consulted from the abstract only, or set aside (Journey 2). Open at any time.", no_args_is_help=True)
 review_app = typer.Typer(help="Independent review (Journey 4). `craft review` reviews every hypothesis that is ready.", invoke_without_command=True)
 reopen_app = typer.Typer(help="Not needed: nothing is frozen, so there is nothing to reopen.", no_args_is_help=True)
 app.add_typer(lit_app, name="literature")
@@ -342,19 +342,23 @@ def lint(doc: Path = typer.Argument(..., help="Any markdown document."), inv_id:
 @lit_app.command("add")
 def lit_add(key: str, title: str = typer.Option(..., "--title"),
             fulltext: Optional[Path] = typer.Option(None, "--fulltext", help="Path to the full text you read."),
-            abstract_only: bool = typer.Option(False, "--abstract-only"),
-            reason: Optional[str] = typer.Option(None, "--reason", help="Why it was consulted and rejected."),
+            abstract_only: bool = typer.Option(False, "--abstract-only", help="Consulted from the abstract only: citable for context, never backs a claim."),
+            rejected: bool = typer.Option(False, "--rejected", help="Consulted and set aside as not relevant."),
+            reason: Optional[str] = typer.Option(None, "--reason", help="One line: why only the abstract, or why it was set aside."),
             claims: str = typer.Option("", "--claims"), method: str = typer.Option("", "--method"),
             relation: str = typer.Option("", "--relation", help="supports | conflicts | orthogonal | mixed"),
             does_not_cover: str = typer.Option("", "--does-not-cover"),
             inv_id: Optional[str] = INV_OPT) -> None:
-    """Record a source: used (full text on disk) or consulted-and-rejected (one-line reason). Any time before closure."""
+    """Record a source: used (full text on disk), abstract-only, or rejected (each with a one-line reason). Any time before closure."""
     prog, inv, state = _ctx(inv_id)
     state.require_phase(Phase.FRAMING, Phase.OPEN, Phase.CLOSING, action="add a source")
-    if fulltext is None and not abstract_only:
-        raise CraftError("give --fulltext <path> for a source you read, or --abstract-only --reason for one you did not")
-    entry = add_source(inv.sources, key, title, None if abstract_only else fulltext, reason, claims, method, relation, does_not_cover)
-    echo(f"Added {key} as {entry['status']}.")
+    if sum(bool(x) for x in (fulltext, abstract_only, rejected)) != 1:
+        raise CraftError("give exactly one of --fulltext <path> (read in full), --abstract-only --reason (consulted from "
+                         "the abstract; never backs a claim) or --rejected --reason (set aside)")
+    entry = add_source(inv.sources, key, title, fulltext, reason, claims, method, relation, does_not_cover, rejected)
+    what = {"used": "used (read in full)", "abstract-only": "abstract-only (citable for context; never backs a claim)",
+            "rejected": "rejected (consulted and set aside)"}[entry["status"]]
+    echo(f"Added {key} as {what}.")
 
 
 @lit_app.command("closest")
@@ -879,6 +883,9 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
                                      post_hoc=bool(post_hoc and post_hoc.get("changed"))))
     echo(f"Verdict for {key} ({experiment}): {label.upper()} — {rationale}. Written to {rel_v}."
          + (f" NOTE: {vfm['uncertainty_note']}." if vfm.get("uncertainty_note") else ""))
+    if not state.data:
+        echo(f"No input data is recorded for this investigation: record what data {', '.join(map(str, data_ids))} "
+             "names with `craft data add <path> --id <data_id>`, so a changed snapshot is caught.")
     if post_hoc:
         echo("POST-HOC: " + post_hoc["note"])
     if killed:
@@ -1171,6 +1178,14 @@ def explain(entry_id: str = typer.Argument(..., help="Memory entry id, e.g. F-00
     echo(text)
     if broken:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def glossary(term: Optional[str] = typer.Argument(None, help="One word, e.g. deferred; default: all of them.")) -> None:
+    """The words CRAFT uses: what each means, and what happens to it at closure."""
+    from .glossary import glossary_text
+
+    echo(glossary_text(term))
 
 
 @app.command("decisions")

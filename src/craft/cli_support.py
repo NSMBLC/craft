@@ -106,6 +106,8 @@ def status_text(prog: Programme, inv_id: str | None = None) -> str:
     archived = prog.list_archived()
     if archived and not inv_id:
         lines.append(f"Archived investigations: {', '.join(archived)}")
+    if invs:
+        lines.append("What each word means, and what happens to it at closure: /craft-glossary")
     return "\n".join(lines)
 
 
@@ -122,6 +124,7 @@ RESEARCHER_HELP = """Your commands (type them as messages; CRAFT executes them b
   /craft-status                  the board: hypotheses, experiments, open questions, whose turn it is
   /craft-decisions               the log of your decisions
   /craft-explain <id>            walk a finding's evidence chain (e.g. F-0001, R-0002)
+  /craft-glossary [word]         what each word on the board means, and what happens to it at closure
   /craft-help                    this list
 Everything you plan stays editable: problem, hypotheses, experiment plans, literature, questions.
 Just tell the agent what to add, park, drop or pursue. Add --inv <id> when several investigations are open."""
