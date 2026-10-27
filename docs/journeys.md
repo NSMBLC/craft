@@ -267,7 +267,11 @@ When a kill criterion fires, nothing new can run, but evidence the same run alre
 be judged: the kill message and the board list each criterion that has evidence and no verdict, and
 closure names exactly which criteria went unjudged. ✓9.18 Each recorded input says how it was built
 (sources, conversions, choices that could have gone the other way), and the referee reads it with the
-design, since data choices are analysis choices. ✓9.19
+design, since data choices are analysis choices. ✓9.19 A kill criterion that spans several results
+("under both encodings, …") names the verdicts it is judged from; CRAFT compares the value each one
+recorded, writes the kill check with the hash of every verdict it used, and no one builds a summary file
+by hand. A verdict a kill check was judged from is not filed again, and `craft verify` reports a cited
+verdict that no longer matches. ✓9.22
 
 Starting a follow-on investigation, she brings the sources of the earlier one over in one command:
 each keeps its record and full-text hash and says where it came from, a full text whose contents no
@@ -289,7 +293,7 @@ until it is a question with its context. ✓9.21
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2, 9.18, 9.20, 9.21 |
 | 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17 |
 | 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
-| 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4 |
+| 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4, 9.22 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |
 | 10. Forced linearity | 8.1, 8.2, 8.3 |
 | Institutional-memory integrity | 5.6, 7.1, 9.1, 9.2, 9.4 |

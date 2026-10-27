@@ -8,7 +8,7 @@ from .envlock import verify_lock
 from .integrity import check_hash
 from .paths import InvestigationPaths, Programme
 from .state import InvestigationState
-from .util import CraftError
+from .util import CraftError, read_doc, sha256_file
 
 
 def load_context(prog: Programme, inv_id: str | None) -> tuple[InvestigationPaths, InvestigationState]:
@@ -39,6 +39,11 @@ def _verify_root(root: Path, label: str, prog: Programme | None = None, full: bo
     for v in state.verdicts:
         if not (root / v.file).exists():
             problems.append(f"{label}: verdict file {v.file} is missing")
+            continue
+        for c in read_doc(root / v.file)[0].get("from_verdicts") or []:  # a kill check judged from other verdicts
+            if not (root / c["path"]).exists() or sha256_file(root / c["path"]) != c.get("sha256"):
+                problems.append(f"{label}: {v.file} was judged from {c['path']}, which is missing or no longer the "
+                                "verdict it was judged from")
     if prog is not None:  # open investigations only: an archive keeps the hashes, the data may move on
         from . import data as data_mod
 
