@@ -14,7 +14,7 @@ from typing import Optional
 
 import typer
 
-from . import decisions, envlock, hooks, registry
+from . import __version__, decisions, envlock, hooks, registry
 from . import memory as mem
 from .artifacts import review as rv
 from .artifacts.hypothesis import DESIGN_FIELDS, criteria_table, is_idea, validate_hypothesis
@@ -36,6 +36,20 @@ app = typer.Typer(help="CRAFT: disciplined computational research inside a GenAI
 lit_app = typer.Typer(help="Literature map: sources read in full, consulted from the abstract only, or set aside (Journey 2). Open at any time.", no_args_is_help=True)
 review_app = typer.Typer(help="Independent review (Journey 4). `craft review` reviews every hypothesis that is ready.", invoke_without_command=True)
 reopen_app = typer.Typer(help="Not needed: nothing is frozen, so there is nothing to reopen.", no_args_is_help=True)
+
+
+def _show_version(value: bool) -> None:
+    if value:
+        typer.echo(f"craft {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(version: bool = typer.Option(False, "--version", callback=_show_version, is_eager=True,
+                                       help="Show the installed CRAFT version and exit.")) -> None:
+    """CRAFT: disciplined computational research inside a GenAI session."""
+
+
 app.add_typer(lit_app, name="literature")
 app.add_typer(lit_app, name="lit", hidden=True)
 app.add_typer(review_app, name="review")
@@ -114,7 +128,10 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
         created += _install_claude_code_adapter(root)
     else:
         raise CraftError(f"no adapter for host '{host}' yet (available: claude-code)")
-    echo("CRAFT programme ready at " + str(root))
+    stamped = _stamp_version(marker)
+    if stamped and PROGRAMME_MARKER not in created:
+        created.append(stamped)
+    echo(f"CRAFT {__version__} programme ready at {root}")
     for c in created:
         echo(f"  + {c}")
     if not created:
@@ -126,6 +143,24 @@ def init(host: str = typer.Option("claude-code", help="Host adapter to install."
             echo(f"  ! {line}")
     echo("Next: open your GenAI session here and type /craft-help to see your commands "
          "(/craft-approve, /craft-reject, /craft-close, /craft-resolve, /craft-status).")
+
+
+_STAMP_RE = re.compile(r"^craft_version:[ \t]*['\"]?([^'\"\s#]*)['\"]?.*$", re.M)
+
+
+def _stamp_version(marker: Path) -> str | None:
+    """Record in craft.yaml which CRAFT version last wrote this programme's playbook, commands and hooks;
+    the line is edited in place so the researcher's comments survive. Returns what changed, if anything."""
+    text = marker.read_text(encoding="utf-8")
+    line = f"craft_version: \"{__version__}\"  # the CRAFT that last ran `craft init` here"
+    m = _STAMP_RE.search(text)
+    if m is None:
+        marker.write_text(text.rstrip("\n") + "\n" + line + "\n", encoding="utf-8")
+        return f"{PROGRAMME_MARKER} (stamped CRAFT {__version__}; written by an unversioned CRAFT before)"
+    if m.group(1) == __version__:
+        return None
+    marker.write_text(text[:m.start()] + line + text[m.end():], encoding="utf-8")
+    return f"{PROGRAMME_MARKER} (refreshed from CRAFT {m.group(1) or 'unknown'} to {__version__})"
 
 
 def _install_claude_code_adapter(root: Path) -> list[str]:

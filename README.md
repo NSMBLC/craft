@@ -24,8 +24,11 @@ test in `tests/acceptance/checkpoints.md`.
 
 ```
 uv tool install git+https://github.com/NSMBLC/craft     # or: uv tool install -e . from a checkout
-craft --help
+craft --version
 ```
+
+Releases are tagged (`uv tool install git+https://github.com/NSMBLC/craft@v0.1.0` pins one) and listed in
+`CHANGELOG.md`. While CRAFT is at 0.x, a minor version adds or changes behaviour and a patch only fixes it.
 
 Requires Python 3.12+ and, for the independent referee, the `claude` CLI on PATH (or set
 `referee.backend: command` in `craft.yaml` to use any other model CLI). The referee uses your
@@ -45,7 +48,8 @@ claude            # open Claude Code here from now on
 Claude Code adapter: `.claude/settings.json` (hooks + deny rules), a `CLAUDE.md` block with the
 agent playbook, and the `/craft` slash commands. Run it again at the root of an existing programme after
 upgrading CRAFT: it brings CRAFT's own parts (the playbook block in `CLAUDE.md`, the slash commands, the
-hooks) up to the installed version, prints what changed, flags fields in your files that CRAFT no longer
+hooks) up to the installed version, records that version as `craft_version` in `craft.yaml` (and reports
+the version it came from), prints what changed, flags fields in your files that CRAFT no longer
 reads, and leaves your own text and files alone. Run from a subfolder of a programme, it refuses rather
 than create a programme inside it.
 
