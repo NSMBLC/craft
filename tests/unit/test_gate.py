@@ -196,3 +196,34 @@ def test_bash_screen_reads_inline_python_and_heredocs(tmp_path):
     ]
     for cmd in refused:
         assert not decide_bash(prog, cmd, root).allow, cmd
+
+
+def test_bash_screen_reads_each_line_as_its_own_command(tmp_path):
+    root = tmp_path.resolve()
+    (root / "craft.yaml").write_text("version: 1\n")
+    (root / "archive").mkdir()
+    prog = Programme(root)
+    for cmd in ("rm notes/tmp.txt\ncat archive/inv-1/verdict.md",
+                "# tidy up, then read archive/inv-1\nrm -f notes/tmp.txt\nls archive/inv-1",
+                "cp archive/inv-1/a.pdf \\\n   notes/lit/\nwc -l archive/inv-1/b.md",
+                "python3 -c 'import json\nprint(json.load(open(\"archive/inv-1/x.json\")))'\nrm notes/tmp.txt"):
+        assert decide_bash(prog, cmd, root).allow, cmd
+    for cmd in ("ls archive\nrm archive/inv-1/verdict.md", "echo x \\\n  > archive/inv-1/a.md",
+                "cat notes/a.md\nmv notes/a.md archive/inv-1/", "echo '#not a comment' > memory/findings.jsonl"):
+        assert not decide_bash(prog, cmd, root).allow, cmd
+
+
+def test_inline_python_traces_writes_through_functions():
+    from craft.pyscan import write_targets
+
+    code = ("import shutil\nfrom pathlib import Path\n"
+            "def save(text, path):\n    Path(path).write_text(text)\n"
+            "save(Path('archive/inv-1/a.md').read_text(), 'notes/a.md')\n")
+    assert write_targets(code) == ["notes/a.md"]
+    code = "def out(p='notes/o.json'):\n    open(p, 'w').write('x')\nout()\n"
+    assert write_targets(code) == ["notes/o.json"]
+    # untraced target: only paths held in names or in the target itself count, never an inline read
+    code = "import sys\nsrc = 'notes/in.md'\nt = open('archive/inv-1/a.md').read()\nopen(sys.argv[1], 'w').write(t)\n"
+    assert write_targets(code) == ["notes/in.md"]
+    code = "import os\nos.remove(os.environ.get('X', 'archive/inv-1/x.md'))\n"
+    assert "archive/inv-1/x.md" in write_targets(code)

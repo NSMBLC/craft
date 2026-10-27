@@ -282,6 +282,31 @@ def _split_heredocs(command: str) -> tuple[str, dict[str, str]]:
     return "\n".join(out), bodies
 
 
+def _lines_as_parts(command: str) -> str:
+    """Make each unquoted line break a `;`, so commands on separate lines are separate parts, as the shell
+    runs them; a backslash-newline joins two lines and an unquoted `#` comment is dropped."""
+    out, quote, i = [], "", 0
+    while i < len(command):
+        c = command[i]
+        if c == "\\" and quote != "'" and i + 1 < len(command):
+            out.append("" if command[i + 1] == "\n" else command[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            quote = "" if c == quote else quote
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (not out or out[-1][-1:] in " \t;"):
+            while i < len(command) and command[i] != "\n":
+                i += 1
+            continue
+        elif c == "\n":
+            c = " ; "
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 _RUNS_TEXT = re.compile(r"\b(?:bash|sh|zsh|python[\d.]*|node|ruby|perl|craft)\b")
 
 
@@ -309,7 +334,7 @@ def _python_code(words: list[str], bodies: dict[str, str]) -> str | None:
 def _write_candidates(command: str, base: Path) -> list[tuple[str, Path]]:
     """(token, directory it resolves against) for every file the command may write.
 
-    Each part of the command (split at `;`, `&&`, `||`, `|`) is judged on its own: a part that does not
+    Each part of the command (split at `;`, `&&`, `||`, `|` and line breaks) is judged on its own: a part that does not
     write (`ls`, `cd`, a `for ... in` list, `grep`) names no write target, and `cd` only moves the base.
     `cp`/`rsync` (also after `do`, `xargs` or `find -exec`) write only their destination. A writing part
     whose target is a loop variable or comes from `xargs` cannot be read from its own words, so then
@@ -319,6 +344,7 @@ def _write_candidates(command: str, base: Path) -> list[tuple[str, Path]]:
     from . import pyscan
 
     command, bodies = _split_heredocs(command)
+    command = _lines_as_parts(command)
     try:
         lex = shlex.shlex(command, posix=True, punctuation_chars=True)
         lex.whitespace_split = True
