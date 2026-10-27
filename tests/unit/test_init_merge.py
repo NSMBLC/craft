@@ -45,3 +45,20 @@ def test_init_installs_decision_skills(tmp_path):
     for name in ("craft", "craft-approve", "craft-reject", "craft-close", "craft-reopen", "craft-resolve", "craft-status", "craft-help", "craft-decisions", "craft-explain"):
         assert (root / ".claude" / "skills" / name / "SKILL.md").exists(), name
     assert "nothing to do" in c("init", "--path", str(root)).out
+
+
+def test_init_stamps_the_version_and_reports_where_it_came_from(tmp_path):
+    from craft import __version__
+    from tests.conftest import Craft
+    root = tmp_path / "p"
+    root.mkdir()
+    c = Craft(root)
+    assert c("--version").out.strip() == f"craft {__version__}"
+    assert c("init", "--path", str(root)).code == 0
+    cfg = root / "craft.yaml"
+    assert f'craft_version: "{__version__}"' in cfg.read_text()
+    cfg.write_text(cfg.read_text().replace(f'"{__version__}"', '"0.0.1"') + "# mine\n")
+    r = c("init", "--path", str(root))
+    assert f"from CRAFT 0.0.1 to {__version__}" in r.out and "# mine" in cfg.read_text()
+    assert cfg.read_text().count("craft_version:") == 1
+    assert "nothing to do" in c("init", "--path", str(root)).out
