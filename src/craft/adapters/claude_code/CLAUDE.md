@@ -34,31 +34,28 @@ follow them, and fix everything a refusal lists before retrying.
    do differently, and the kill criteria; propose defaults for scope and metric. Fill `problem.md` in
    place (studying X, to find out Y, so that a named reader understands Z; the cost of not answering;
    one page). **Kill criteria** say when the question is dead or unanswerable ("the baseline cannot be
-   reproduced within 2%", "pilot spread is too large to detect the effect"), never success ("if A is
-   20% faster we stop" is optional stopping). Run `craft validate problem`; if the researcher brought
-   their own statement, report only what is missing. Then ask them to type `/craft-approve`.
+   reproduced within 2%"), never success (that is optional stopping). Run `craft validate problem`
+   (if the researcher brought their own statement, report only what is missing), then ask them to
+   type `/craft-approve`.
 2. **Literature**, any time: `craft literature add` with `--fulltext` only for sources you read in
    full, otherwise `--abstract-only` or `--rejected` with a reason. Name the closest prior work with
    `craft literature closest`. Search again whenever a result calls for it. Sources from an earlier
    investigation come over with `craft literature carry <id>`, never by copying files.
-3. **Hypotheses.** Park ideas freely; flesh out the one the researcher picks; `craft validate H<n>` and
-   report its result honestly.
+3. **Hypotheses.** Park ideas; flesh out the one the researcher picks; report `craft validate H<n>` honestly.
 4. **Review.** `craft review` sends every complete draft to an independent referee. Answer each
    blocking objection by changing the design, `craft review respond H1:O1 --pointer ... --note ...`,
    then `craft review` again. Two rounds at most; after that only a genuine change starts a new cycle.
    A clean pass registers the hypothesis.
-5. **Experiments.** Write the plan before running. Record the input data criteria depend on, with how
-   they were built (`craft data add --derivation`), ideally before review, and the environment
-   (`craft lock <lock file>`) before the first verdict; a new
-   package is `craft propose package <pkg> --reason ...`, then stop until the researcher decides.
-   Before an expensive run, check a dry-run evidence file with `craft verdict ... --dry-run`. Judge each
-   criterion with `craft verdict <exp> --criterion H1:C1 --evidence <file>`, and kill criteria the
-   same way (`--criterion K1`). A met kill criterion halts new work: judge only the evidence the
-   message lists as already produced, then stop and report.
+5. **Experiments.** Write the plan before running. Record input data with how it was built
+   (`craft data add <path> --id <id> --derivation`, ideally before review) and the environment
+   (`craft lock <lock file>`) before the first verdict; a new package is `craft propose package`,
+   then stop until the researcher decides. Check evidence with `--dry-run` before an expensive run,
+   then `craft verdict <exp> --criterion H1:C1 --evidence <file>` (kill criteria: `--criterion K1`).
+   A met kill criterion halts new work: judge only the evidence its message lists, then stop and report.
 6. **After every verdict or new source, suggest** up to three follow-ups (a question, hypothesis or
-   experiment) with `derived_from:` pointing at what prompted them. Write only the ones the researcher
-   accepts.
-7. **Closure** is the researcher's choice: fill `closure.md`, then ask them to type `/craft-close`.
+   experiment, `derived_from:` what prompted it); write only those the researcher accepts.
+7. **Closure** is the researcher's choice: fill `closure.md`, run `craft validate closure`, then ask
+   them to type `/craft-close`.
 
 ## Keeping the record true
 - A limitation found after a verdict: `craft limitation <exp> --criterion H1:C1 --text ... --source ...`
@@ -66,9 +63,8 @@ follow them, and fix everything a refusal lists before retrying.
 - A parked question that was answered: add `answered: <pointer>` to its bullet.
 - A memory entry that turned out wrong: show the researcher the entry and the evidence, and give them
   `/craft-correct <entry-id> --note "..." --evidence <file>` to type.
-- A threshold changed after the data: allowed if the researcher insists, but say plainly that the
-  verdict keeps the pre-registered label, shows what the change would conclude, and memory tags it
-  post-hoc. Offer the confirmatory path: a new hypothesis tested on new data.
+- A threshold changed after the data: allowed if the researcher insists; say plainly that the verdict
+  keeps the pre-registered label and memory tags it post-hoc, and offer a new hypothesis on new data.
 
 ## Asking for a decision
 When the next step is the researcher's, end your message with the exact slash command on its own line,

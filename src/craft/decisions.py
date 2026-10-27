@@ -127,6 +127,12 @@ def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via:
     state.require_phase(Phase.OPEN, Phase.CLOSING, action="close")
     if state.env.pending_proposal:
         raise CraftError("a package proposal is pending; `/craft-approve` or `/craft-reject --note ...` it first")
+    from .artifacts.closure import validate_closure
+
+    cv = validate_closure(inv.closure, state)
+    if not cv.ok:
+        raise CraftError("closure.md would lose anomalies as written; the agent fixes it (`craft validate closure`), "
+                         "then close again:\n" + cv.render())
     lines = [f"Closing {state.id}" + (f" (kill criterion {state.kill.criterion} met)" if state.kill.triggered else "") + ":"]
     for h in registry.all_hypotheses(inv, state):
         if h.status == "dropped":

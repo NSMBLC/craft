@@ -77,6 +77,8 @@ def validate_literature(path: Path) -> Validation:
     v = Validation("literature/sources.yaml")
     if not path.exists():
         v.error("sources.yaml", "missing — run `craft literature add` for each source consulted")
+        for f in unrecorded_files(path.parent, {"sources": []}):
+            v.warn(f"literature/{f}", "a file in literature/ that no source records")
         return v
     data = load_sources(path)
     used = [s for s in data["sources"] if s.get("status") == "used"]
@@ -96,6 +98,9 @@ def validate_literature(path: Path) -> Validation:
                 v.error(f"{key}.reason", f"{s['status']} source needs a one-line reason")
         else:
             v.error(f"{key}.status", f"must be one of {', '.join(STATUSES)}")
+    for f in unrecorded_files(path.parent, data):
+        v.warn(f"literature/{f}", "a file in literature/ that no source records: add it (`craft literature add`, "
+                                  "read in full or --abstract-only) or remove it")
     if used:
         cpw = data.get("closest_prior_work")
         if not cpw:
@@ -107,6 +112,23 @@ def validate_literature(path: Path) -> Validation:
     else:
         v.warn("sources", "no used sources yet")
     return v
+
+
+_LIT_OWN = {"sources.yaml", "map.md"}
+
+
+def unrecorded_files(lit_dir: Path, data: dict) -> list[str]:
+    """Files under literature/ that no source's full text points at (by name or by contents)."""
+    names = {Path(str(s.get("fulltext"))).name for s in data["sources"] if s.get("fulltext")}
+    hashes = {s.get("fulltext_sha256") for s in data["sources"] if s.get("fulltext_sha256")}
+    out = []
+    for f in sorted(lit_dir.rglob("*")) if lit_dir.exists() else []:
+        rel = f.relative_to(lit_dir).as_posix()
+        if not f.is_file() or rel in _LIT_OWN or any(part.startswith(".") for part in f.relative_to(lit_dir).parts):
+            continue
+        if f.name not in names and sha256_file(f) not in hashes:
+            out.append(rel)
+    return out
 
 
 def lint_priority_claims(doc: Path, sources: Path) -> list[str]:

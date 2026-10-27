@@ -64,3 +64,4 @@
 | 9.18 | test_a_kill_still_lets_existing_evidence_be_judged |
 | 9.19 | test_how_data_were_derived_reaches_the_referee |
 | 9.20 | test_sources_carry_over_from_an_archived_investigation |
+| 9.21 | test_closure_and_literature_are_validated |

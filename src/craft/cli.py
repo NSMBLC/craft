@@ -17,6 +17,7 @@ from . import decisions, envlock, hooks, registry
 from . import memory as mem
 from .artifacts import review as rv
 from .artifacts.hypothesis import DESIGN_FIELDS, criteria_table, is_idea, validate_hypothesis
+from .artifacts.closure import validate_closure
 from .artifacts.literature import add_source, carry_sources, lint_priority_claims, load_sources, validate_literature
 from .artifacts.plan import validate_plan
 from .artifacts.problem import kill_criteria, validate_problem
@@ -315,7 +316,7 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
 # ------------------------------------------------------------------ validate / lint
 
 @app.command()
-def validate(artifact: str = typer.Argument("all", help="problem | literature | hypotheses | <hypothesis id, e.g. H2> | plans | all"),
+def validate(artifact: str = typer.Argument("all", help="problem | literature | hypotheses | <hypothesis id, e.g. H2> | experiments | closure | all"),
              full: bool = typer.Option(False, "--full", help="For a parked idea: list everything a full draft still needs."),
              inv_id: Optional[str] = INV_OPT) -> None:
     """Check artifacts against their required shape. Reports; never rewrites.
@@ -326,6 +327,8 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     prog, inv, state = _ctx(inv_id)
     results, notes, ideas = [], [], []
     hyp_ids = inv.hypothesis_ids()
+    if artifact == "plans":  # the unit is an experiment; its plan is experiments/<name>/plan.md
+        artifact = "experiments"
 
     def hyp_result(h: str, strict: bool) -> None:
         if not full and is_idea(read_doc(inv.hypothesis(h))[0]):
@@ -349,13 +352,16 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     elif artifact == "all":
         for h in hyp_ids:
             hyp_result(h, strict=False)
-    if artifact in ("plans", "all"):
+    if artifact in ("experiments", "all"):
         results += [validate_plan(inv, state, e) for e in inv.experiment_names() if inv.experiment_plan(e).exists()]
+    if artifact == "closure" or (artifact == "all" and inv.closure.exists()):
+        results.append(validate_closure(inv.closure, state))
     if not results and not notes and not ideas:
-        if artifact in ("problem", "literature", "hypotheses", "hypothesis", "plans", "all"):
+        if artifact in ("problem", "literature", "hypotheses", "hypothesis", "experiments", "all"):
             echo("Nothing to validate yet.")
             return
-        raise CraftError(f"'{artifact}' is not problem, literature, hypotheses, plans, all, or a hypothesis id ({', '.join(hyp_ids) or 'none yet'})")
+        raise CraftError(f"'{artifact}' is not problem, literature, hypotheses, experiments, closure, all, or a hypothesis "
+                         f"id ({', '.join(hyp_ids) or 'none yet'})")
     ok = True
     for r in results:
         echo(r.render())
