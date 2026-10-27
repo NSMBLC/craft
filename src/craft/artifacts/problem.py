@@ -2,7 +2,9 @@
 
 Required shape (frontmatter):
   studying, to_find_out, so_that.reader, so_that.understands, cost_of_not_answering,
-  kill_criteria[] (each: id, condition; optionally metric/op/value for mechanical checks),
+  kill_criteria[] (each: id, condition; optionally metric/op/value for mechanical checks, and
+    `from: [H1:C1, ...]` to judge it from those recorded verdicts, with `of: point|ci_low|ci_high` and
+    `combine: all|any`),
   memory_acknowledgements[] (filled by `craft new`).
 Body: at most `limits.problem_max_words` words (one page).
 """
@@ -15,6 +17,8 @@ from ..util import read_doc, word_count
 from .common import Validation, looks_weak, nonempty
 
 OPS = {"<", "<=", ">", ">=", "==", "!="}
+KILL_OF = ("point", "ci_low", "ci_high")
+KILL_COMBINE = ("all", "any")
 
 
 def validate_problem(path: Path, max_words: int = 600) -> Validation:
@@ -62,6 +66,17 @@ def validate_problem(path: Path, max_words: int = 600) -> Validation:
                     v.error(f"kill_criteria[{i}].op", f"op must be one of {sorted(OPS)}")
             else:
                 v.warn(f"kill_criteria[{i}]", "no metric/op/value: this criterion cannot be checked mechanically by `craft verdict`")
+            if k.get("from") is not None:
+                src = k.get("from")
+                if not isinstance(src, list) or not src or not all(isinstance(x, str) and x.count(":") in (1, 2) for x in src):
+                    v.error(f"kill_criteria[{i}].from", "a list of recorded criteria to judge it from, e.g. [H1:C1, H2:C1] "
+                                                        "(or exp-a:H1:C1 when several experiments judged one)")
+                if any(s is None for s in structured):
+                    v.error(f"kill_criteria[{i}].from", "needs metric/op/value: the value each cited verdict is compared with")
+            if k.get("of", "point") not in KILL_OF:
+                v.error(f"kill_criteria[{i}].of", f"which recorded value is compared: one of {', '.join(KILL_OF)}")
+            if k.get("combine", "all") not in KILL_COMBINE:
+                v.error(f"kill_criteria[{i}].combine", "`all` (met when every cited result meets it) or `any` (when one does)")
 
     wc = word_count(body)
     if wc == 0:

@@ -21,10 +21,10 @@ def typed(c: Craft, prompt: str, session: str = "t") -> str:
     return c.hook_event("user-prompt-submit", prompt=prompt, hook_event_name="UserPromptSubmit", session_id=session).out
 
 
-def open_inv(c: Craft, inv: str = "inv-001", hyp: str = HYP_FIXED_O2) -> str:
+def open_inv(c: Craft, inv: str = "inv-001", hyp: str = HYP_FIXED_O2, problem: str = PROBLEM) -> str:
     """A framed, approved investigation whose H1 is registered by a clean review."""
     assert c("new", inv, "--topic", "does method A's accuracy advantage hold on larger inputs").code == 0
-    c.write(f"investigations/{inv}/problem.md", PROBLEM.replace("id: inv-001", f"id: {inv}"))
+    c.write(f"investigations/{inv}/problem.md", problem.replace("id: inv-001", f"id: {inv}"))
     assert "Approved" in typed(c, f"/craft-approve --inv {inv}")
     c.write(f"investigations/{inv}/hypotheses/H1.md", hyp)
     script = c.root.parent / "cycle2.json"
@@ -531,3 +531,44 @@ def test_closure_and_literature_are_validated(programme: Craft):
     assert c("validate", "closure", "--inv", inv).code == 0
     close(c)
     assert any("latency spike" in q["question"] for q in memory(c, "open"))
+
+
+@pytest.mark.checkpoint("9.22")
+def test_a_kill_criterion_is_judged_from_recorded_verdicts(programme: Craft):
+    from craft.artifacts.problem import validate_problem
+
+    c = programme
+    k2 = ("  - id: K2\n    condition: under both runs the gain's upper bound stays below 0.5\n"
+          "    metric: accuracy_gain\n    op: \"<\"\n    value: 0.5\n"
+          "    from: [run1:H1:C1, run2:H1:C1]\n    of: ci_high\n    combine: all\n")
+    problem = PROBLEM.replace("memory_acknowledgements: []", k2 + "memory_acknowledgements: []")
+    bad = c.write("bad-problem.md", problem.replace("of: ci_high", "of: max"))
+    assert any(e.field == "kill_criteria[1].of" for e in validate_problem(bad).errors)
+    inv = open_inv(c, problem=problem)
+    for run in ("run1", "run2"):
+        plan(c, inv, run, f"description: {run} of H1:C1\ntests: [H1:C1]")
+    d = f"investigations/{inv}/experiments"
+    e1 = ev(c, f"{d}/run1/evidence/c1.json", "accuracy_gain", [0.1, 0.2, 0.15, 0.1, 0.2])
+    e2 = ev(c, f"{d}/run2/evidence/c1.json", "accuracy_gain", [0.2, 0.1, 0.1, 0.15, 0.2])
+    r = c("verdict", "run1", "--criterion", "H1:C1", "--evidence", e1, "--inv", inv)
+    assert "REFUTED" in r.out and "KILL" not in r.out and "K2" not in r.out, r.text  # one result is not both runs
+    r = c("verdict", "run2", "--criterion", "K2", "--dry-run", "--inv", inv)
+    assert r.code != 0 and "not recorded yet: run2:H1:C1" in r.out, r.text
+    r = c("verdict", "run2", "--criterion", "K2", "--inv", inv)
+    assert r.code != 0 and "not recorded yet: run2:H1:C1" in r.err
+    r = c("verdict", "run2", "--criterion", "H1:C1", "--evidence", e2, "--inv", inv)
+    assert "`craft verdict run2 --criterion K2` (no --evidence)" in r.out, r.text
+    r = c("verdict", "run2", "--criterion", "K2", "--evidence", e2, "--inv", inv)
+    assert r.code != 0 and "drop --evidence" in r.err
+    r = c("verdict", "run2", "--criterion", "K2", "--inv", inv)
+    assert "KILL CRITERION K2 MET" in r.out and "run1:H1:C1" in r.out, r.text
+    fm, body = split_frontmatter((c.root / d / "run2" / "verdict-K2.md").read_text())
+    assert [x["path"] for x in fm["from_verdicts"]] == ["experiments/run1/verdict-H1-C1.md", "experiments/run2/verdict-H1-C1.md"]
+    assert all(x["sha256"] and x["value"] < 0.5 for x in fm["from_verdicts"]) and "no evidence file" in body
+    r = c("verdict", "run1", "--criterion", "H1:C1", "--evidence", e1, "--inv", inv)
+    assert r.code != 0 and "judged from" in r.err and "not filed again" in r.err
+    assert c("verify").code == 0
+    cited = c.root / d / "run1" / "verdict-H1-C1.md"
+    cited.write_text(cited.read_text() + "\nedited\n")
+    out = c("verify").out
+    assert "was judged from experiments/run1/verdict-H1-C1.md" in out, out

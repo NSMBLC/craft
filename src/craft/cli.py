@@ -874,7 +874,8 @@ def _check_data(prog: Programme, state: InvestigationState, data_ids: list) -> l
 
 @app.command()
 def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", help="H1:C1 (or C1 when unambiguous), or a kill criterion id like K1."),
-            evidence: Path = typer.Option(..., "--evidence", help="Evidence file under experiments/<exp>/evidence/"),
+            evidence: Optional[Path] = typer.Option(None, "--evidence", help="Evidence file under experiments/<exp>/evidence/ "
+                                                    "(not for a kill criterion judged `from:` recorded verdicts)."),
             metric: Optional[str] = typer.Option(None, "--metric", help="Metric key in the evidence file (default: the criterion's metric)."),
             exploratory: list[Path] = typer.Option([], "--exploratory", help="Exploratory dirs/files to link for transparency (never evidence)."),
             seed: list[str] = typer.Option([], "--seed"), data_id: list[str] = typer.Option([], "--data-id"),
@@ -883,7 +884,17 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
             inv_id: Optional[str] = INV_OPT) -> None:
     """Compute a verdict for one criterion from an evidence file, against the registered threshold."""
     prog, inv, state = _ctx(inv_id)
+    pfm, _ = read_doc(inv.problem)
+    kills = {k["id"]: k for k in kill_criteria(pfm)}
+    from_results = ":" not in criterion and criterion in kills and kills[criterion].get("from") is not None
+    if from_results and evidence is not None:
+        raise CraftError(f"kill criterion {criterion} is judged from the recorded verdicts it names "
+                         f"({', '.join(kills[criterion]['from'])}), not from an evidence file; drop --evidence.")
+    if evidence is None and not from_results:
+        raise CraftError("--evidence is required: the evidence file under experiments/<exp>/evidence/ this criterion is judged on.")
     if dry_run:
+        if from_results:
+            return _kill_sources_dry_run(inv, state, kills[criterion])
         return _dry_run(prog, inv, state, criterion, evidence, metric, seed, data_id)
     state.require_untainted("file a verdict")
     if state.phase == Phase.FRAMING:
@@ -892,15 +903,16 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     state.require_phase(Phase.OPEN, Phase.CLOSING, action="file a verdict")
     if state.env.pending_proposal:
         raise CraftError(f"verdicts are halted: package proposal '{state.env.pending_proposal['package']}' awaits the researcher's `/craft-approve` (or `/craft-reject --note ...`).")
-    pfm, _ = read_doc(inv.problem)
-    kills = {k["id"]: k for k in kill_criteria(pfm)}
     if ":" not in criterion and criterion in kills:
         if closing:
             raise CraftError(f"investigation {state.id} is closing (kill criterion {state.kill.criterion} was met); "
                              "no further kill checks.")
+        if from_results:
+            return _kill_from_results(inv, state, experiment, kills[criterion])
         return _kill_check(prog, inv, state, experiment, kills[criterion], evidence, metric, seed, data_id)
     hid, cname = _resolve_criterion(inv, state, criterion, kills)
     key = f"{hid}:{cname}"
+    _refuse_if_cited(inv, state, experiment, key)
     hv = registry.hyp_view(inv, state, hid)
     if not hv.rec.registered_sha256:
         raise CraftError(
@@ -941,7 +953,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
 
     killed = None
     for k in [] if closing else kill_criteria(pfm):
-        if k["metric"] in _metric_names(data):
+        if k.get("from") is None and k["metric"] in _metric_names(data):
             km = extract(data, k["metric"], k.get("deterministic") or None)
             if compare(k["op"], km.point, float(k["value"])):
                 killed = (k, km)
@@ -1010,6 +1022,16 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     echo(f"{hid} is now {hv.status}{basis}{left}. Propose up to three follow-ups grounded in this result (a question in "
          "questions.md, a hypothesis in hypotheses/, or an experiment plan) with "
          f"`derived_from: {rel_v}`, and write the ones the researcher accepts.")
+    for k in kill_criteria(pfm):
+        if k.get("from") is not None and not any(v.criterion == k["id"] for v in state.verdicts):
+            try:
+                cited, missing = _kill_sources(inv, state, k)
+            except CraftError as e:
+                echo(f"Kill criterion {k['id']} cannot be judged from its cited verdicts yet: {e}")
+                continue
+            if not missing and any(c["experiment"] == experiment and c["criterion"] == key for c in cited):
+                echo(f"Kill criterion {k['id']} is judged from {', '.join(k['from'])}, all now recorded: run "
+                     f"`craft verdict {experiment} --criterion {k['id']}` (no --evidence) before planning more work.")
 
 
 @app.command()
@@ -1240,6 +1262,7 @@ def _resolve_evidence(inv: InvestigationPaths, experiment: str, evidence: Path) 
 
 def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metric, seed, data_id) -> None:
     """Evaluate one kill criterion from problem.md against an evidence file (Journey 6.5)."""
+    _refuse_if_cited(inv, state, experiment, k["id"])
     ev = _resolve_evidence(inv, experiment, evidence)
     data = load_evidence(ev)
     det = k.get("deterministic") or None
@@ -1281,6 +1304,101 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
         return
     state.save(inv.root)
     echo(f"Kill criterion {k['id']} NOT met (observed {m.point:.6g}, kill if {op} {value}). Recorded in {rel_v}; execution continues.")
+
+
+def _kill_sources(inv: InvestigationPaths, state: InvestigationState, k: dict) -> tuple[list[dict], list[str]]:
+    """The recorded verdicts a `from:` kill criterion names (each with the value it compares), and those not
+    recorded yet. `H1:C1` must name exactly one verdict; `exp-a:H1:C1` picks one experiment's."""
+    cited, missing = [], []
+    for ref in k["from"]:
+        parts = str(ref).split(":")
+        exp, key = (parts[0], ":".join(parts[1:])) if len(parts) == 3 else (None, str(ref))
+        hits = [v for v in state.verdicts if v.criterion == key and (exp is None or v.experiment == exp)]
+        if not hits:
+            missing.append(str(ref))
+            continue
+        if len(hits) > 1:
+            raise CraftError(f"kill criterion {k['id']} cites {ref}, which has verdicts in several experiments "
+                             f"({', '.join(v.experiment for v in hits)}); name one in problem.md as <exp>:{key}")
+        v = hits[0]
+        fm, _ = read_doc(inv.root / v.file)
+        of = k.get("of", "point")
+        ci = fm.get("ci95")
+        if of != "point" and not ci:
+            raise CraftError(f"kill criterion {k['id']} compares each cited verdict's {of}, but {v.file} has no interval "
+                             f"({'deterministic' if fm.get('deterministic') else 'none recorded'}); use `of: point`.")
+        if fm.get("metric") != k["metric"]:
+            raise CraftError(f"kill criterion {k['id']} is about {k['metric']}, but {v.file} measured {fm.get('metric')}; "
+                             "cite verdicts on the kill criterion's metric.")
+        value = float(fm["observed"]) if of == "point" else float(ci[0] if of == "ci_low" else ci[1])
+        cited.append({"ref": str(ref), "experiment": v.experiment, "criterion": key, "label": v.label, "path": v.file,
+                      "sha256": state.records.get(v.file), "value": value})
+    return cited, missing
+
+
+def _kill_sources_dry_run(inv: InvestigationPaths, state: InvestigationState, k: dict) -> None:
+    cited, missing = _kill_sources(inv, state, k)
+    have = ", ".join(c["ref"] for c in cited) or "none"
+    echo(f"DRY RUN — kill criterion {k['id']} is judged from recorded verdicts: recorded {have}"
+         + (f"; not recorded yet: {', '.join(missing)}" if missing else "; all recorded")
+         + ". Nothing was recorded and no label was computed.")
+    if missing:
+        raise typer.Exit(code=1)
+
+
+def _kill_from_results(inv: InvestigationPaths, state: InvestigationState, experiment: str, k: dict) -> None:
+    """Judge a kill criterion from the verdicts it names (Journey 6.5): each cited verdict's recorded value is
+    compared with the kill's; the kill check records which verdicts, as hashed, it was judged from."""
+    cited, missing = _kill_sources(inv, state, k)
+    if missing:
+        raise CraftError(f"kill criterion {k['id']} is judged from {', '.join(k['from'])}; not recorded yet: "
+                         f"{', '.join(missing)}. Judge those first.")
+    if experiment not in {c["experiment"] for c in cited}:
+        raise CraftError(f"record kill criterion {k['id']} under an experiment it is judged from "
+                         f"({', '.join(sorted({c['experiment'] for c in cited}))}), not {experiment}.")
+    _refuse_if_cited(inv, state, experiment, k["id"])
+    op, value, of, how = k["op"], float(k["value"]), k.get("of", "point"), k.get("combine", "all")
+    hits = [compare(op, c["value"], value) for c in cited]
+    met = all(hits) if how == "all" else any(hits)
+    label = "kill-met" if met else "kill-not-met"
+    vfm = {
+        "experiment": experiment, "criterion": k["id"], "kind": "kill-criterion", "label": label,
+        "condition": k.get("condition"), "metric": k["metric"], "op": op, "value": value, "of": of, "combine": how,
+        "from_verdicts": [{x: c[x] for x in ("ref", "path", "sha256", "label", "value")} for c in cited],
+        "env_version": state.env.version, "env_lock_sha256": state.env.lock_sha256,
+        "problem_sha256": state.problem_sha256,
+        "created": now_iso(),
+    }
+    body = [f"# Kill check — {experiment} / {k['id']}: **{label.upper()}**", "",
+            f"Kill criterion {k['id']}: {k.get('condition')}  ({how} of: {of} of {k['metric']} {op} {value})", "",
+            "Judged from recorded verdicts (no evidence file):"]
+    body += [f"- {c['ref']}: {of} {c['value']:.6g} ({'meets' if h else 'does not meet'} {op} {value}); "
+             f"`{c['path']}` (sha256 {(c['sha256'] or '')[:12]}, label {c['label']})" for c, h in zip(cited, hits)]
+    vpath = inv.verdict(experiment, k["id"])
+    _write_record(inv, state, vpath, render_verdict(vfm, body))
+    rel_v = inv.rel(vpath)
+    state.verdicts = [v for v in state.verdicts if not (v.experiment == experiment and v.criterion == k["id"])]
+    state.verdicts.append(VerdictRef(experiment=experiment, criterion=k["id"], label=label, file=rel_v, when=now_iso()))
+    shown = "; ".join(f"{c['ref']} {c['value']:.6g}" for c in cited)
+    if met:
+        _route_to_closing(inv, state, k, max(c["value"] for c in cited) if op in ("<", "<=") else min(c["value"] for c in cited), rel_v)
+        echo(f"KILL CRITERION {k['id']} MET ({k.get('condition')}; {of}: {shown}; {how} {op} {value}). Written to {rel_v}. "
+             "Remaining experiments are halted; the investigation is routed to closure. " + _after_kill(inv, state))
+        return
+    state.save(inv.root)
+    echo(f"Kill criterion {k['id']} NOT met ({of}: {shown}; kill if {how} {op} {value}). Recorded in {rel_v}; execution continues.")
+
+
+def _refuse_if_cited(inv: InvestigationPaths, state: InvestigationState, experiment: str, key: str) -> None:
+    """A verdict a kill check was judged from is part of that record: it is not filed again."""
+    target = inv.rel(inv.verdict(experiment, key))
+    for v in state.verdicts:
+        if v.file == target or not (inv.root / v.file).exists():
+            continue
+        fm, _ = read_doc(inv.root / v.file)
+        if any(c.get("path") == target for c in fm.get("from_verdicts") or []):
+            raise CraftError(f"kill criterion {v.criterion} was judged from {target} ({v.file}); that verdict is part of "
+                             "its record and is not filed again.")
 
 
 def _metric_names(data: dict) -> set[str]:
