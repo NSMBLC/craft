@@ -136,7 +136,7 @@ def test_memory_correction_is_a_researcher_decision_shown_with_the_entry(program
     plan(c, "inv-001", "sweep", "description: decisive exploratory study\nexploratory: true")
     close(c)
     q = memory(c, "open")
-    target = next(x for x in q if "untested H1" in x["question"])
+    target = next(x for x in q if "untested inv-001/H1" in x["question"])
     c.write("notes/why.md", "H1 was superseded by H3 in the follow-on investigation")
     # the agent cannot record it
     assert c("correct", target["id"], "--note", "superseded by H3 in inv-002, not left untested").code != 0
@@ -351,7 +351,7 @@ def test_abandoned_or_deferred_hypotheses_are_not_pending_work(programme: Craft)
     assert b["hypotheses"]["H1"]["status"] == "registered" and b["hypotheses"]["H1"]["not_tested"] == "deferred: QPU time reserved for November"
     assert b["next"]["command"] == "/craft-close" and "edited since registration" not in c("status").out
     close(c)
-    q = next(x for x in memory(c, "open") if x["question"].startswith("untested H1"))
+    q = next(x for x in memory(c, "open") if x["question"].startswith("untested inv-001/H1"))
     assert "not tested by decision (deferred: QPU time reserved for November)" in q["context"]
 
 
@@ -612,3 +612,46 @@ def test_generated_and_fetched_inputs_are_recorded(programme: Craft):
     out = c("data", "list", "--inv", inv).out
     assert "fetched by the run and recorded" in out and "(`python gen/instances.py --seed {seed}`)" in out
     assert c("verify").code == 0
+
+
+@pytest.mark.checkpoint("9.24")
+def test_hypotheses_have_programme_wide_identity_and_can_be_renumbered(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    h = f"investigations/{inv}/hypotheses"
+    c.write(f"{h}/H2.md", "---\nclaim: the gain comes from longer documents alone\nderived_from: H3\n---\n")
+    c.write(f"{h}/H3.md", "---\nclaim: the gain shrinks on code-heavy inputs\nderived_from: inv-001/H1\n---\n# H3\n")
+    c.write(f"investigations/{inv}/questions.md", "- does H3 hold for H30-style inputs?\n")
+    plan(c, inv, "run1", "description: the main run\ntests: [inv-001/H1:C1]")
+    assert c("new", "inv-002", "--topic", "does the gain hold on code-heavy inputs").code == 0
+    c.write("investigations/inv-002/hypotheses/H1.md", "---\nclaim: code-heavy inputs shrink it\nderived_from: inv-001/H3\n---\n")
+
+    assert c("validate", "inv-001/H1").code == 0
+    c.write("investigations/inv-002/hypotheses/H2.md", "---\nclaim: an idea\nderived_from: inv-001/H9 and H1\n---\n")
+    out = c("validate", "--inv", "inv-002").out
+    assert "derived_from names inv-001/H9, which is no hypothesis" in out and "names H1," not in out, out
+    r = c("validate", "inv-001/H1", "--inv", "inv-002")
+    assert r.code != 0 and "is a hypothesis of inv-001" in r.err
+    r = c("renumber", "H1", "H5", "--inv", inv)
+    assert r.code != 0 and "keeps its identity" in r.err
+    r = c("renumber", "inv-001/H3", "H4")
+    assert r.code == 0 and "Renumbered inv-001/H3 to inv-001/H4" in r.out, r.text
+    assert not (c.root / f"{h}/H3.md").exists() and "# H4" in (c.root / f"{h}/H4.md").read_text()
+    assert "derived_from: H4" in (c.root / f"{h}/H2.md").read_text()
+    assert (c.root / f"investigations/{inv}/questions.md").read_text() == "- does H4 hold for H30-style inputs?\n"
+    assert "derived_from: inv-001/H4" in (c.root / "investigations/inv-002/hypotheses/H1.md").read_text()
+    r = c("renumber", "H4", "H2", "--inv", inv)
+    assert r.code != 0 and "already exists" in r.err
+
+    e = ev(c, f"investigations/{inv}/experiments/run1/evidence/c1.json", "accuracy_gain", [1.9, 2.0, 2.1, 2.0, 1.95])
+    assert "SUPPORTED" in c("verdict", "run1", "--criterion", "inv-001/H1:C1", "--evidence", e).out
+    close(c)
+    finding = next(f for f in memory(c, "finding") if f["hypothesis"] == "H1")
+    assert finding["hypothesis_ref"] == "inv-001/H1"
+    qs = {q["question"]: q for q in memory(c, "open")}
+    assert any(q.startswith("untested idea inv-001/H4") for q in qs)
+    assert next(q for k, q in qs.items() if k.startswith("untested idea inv-001/H2"))["derived_from"] == "inv-001/H4"
+    out = c("explain", "inv-001/H1").out
+    assert finding["id"] in out, out
+    r = c("explain", "inv-002/H1")
+    assert r.code != 0 and "open investigation" in r.err

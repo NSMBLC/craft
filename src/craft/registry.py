@@ -49,6 +49,47 @@ def parse_iso(ts: str) -> float:
 
 # ------------------------------------------------------------------ hypotheses
 
+# A hypothesis is `H<n>` inside its investigation and `<investigation>/H<n>` anywhere in the programme;
+# a criterion adds `:C<n>`. Every command that takes one accepts either form.
+HYP_REF_RE = re.compile(r"^(?:(?P<inv>[A-Za-z0-9][\w.-]*)/)?(?P<hid>H\d+)(?::(?P<crit>[\w*]+))?$")
+_BARE_HYP_RE = re.compile(r"(?<![\w/.:-])(H\d+)(?=(?::[\w*]+)?(?![\w/-]))")
+
+
+def split_ref(ref: str) -> tuple[str | None, str]:
+    """(investigation or None, local ref) for `inv-001/H1:C1`, `H1:C1`, `inv-001/H1` or `H1`; any other text
+    is returned unchanged with None."""
+    m = HYP_REF_RE.match(str(ref).strip())
+    if not m:
+        return None, str(ref)
+    return m.group("inv"), str(ref).strip().split("/", 1)[-1]
+
+
+_ANY_HYP_RE = re.compile(r"(?<![\w/.:-])(?:([A-Za-z0-9][\w.-]*)/)?(H\d+)(?![\w/-])")
+
+
+def unresolved_refs(prog, inv: InvestigationPaths, text: str) -> list[str]:
+    """Hypothesis references in `text` (`H2`, `inv-001/H1`) that name no hypothesis file, open or archived."""
+    from .paths import InvestigationPaths as _IP
+
+    out = []
+    for m in _ANY_HYP_RE.finditer(str(text or "")):
+        other, hid = m.group(1), m.group(2)
+        if other is None:
+            found = inv.hypothesis(hid).exists()
+        else:
+            found = any(_IP(root).hypothesis(hid).exists()
+                        for root in (prog.investigation_dir(other), prog.archive_dir / other))
+        if not found:
+            out.append(m.group(0))
+    return out
+
+
+def qualify_text(text: str, inv_id: str) -> str:
+    """Every bare `H<n>` (or `H<n>:C<n>`) in `text` written as `<inv>/H<n>`, so it stays unambiguous once it
+    leaves its investigation (memory, links from other investigations)."""
+    return _BARE_HYP_RE.sub(lambda m: f"{inv_id}/{m.group(1)}", text)
+
+
 @dataclass
 class HypView:
     id: str
@@ -63,6 +104,12 @@ class HypView:
     post_hoc: bool = False         # criteria/outcome rule changed since registration
     changed_since_registration: bool = False  # a judged field changed (provenance and notes do not count)
     idea: bool = False             # a claim only: parked, valid as an idea
+    inv_id: str = ""
+
+    @property
+    def ref(self) -> str:
+        """The programme-wide identity: `<investigation>/H<n>`."""
+        return f"{self.inv_id}/{self.id}" if self.inv_id else self.id
 
     @property
     def claim(self) -> str:
@@ -113,7 +160,7 @@ def hyp_view(inv: InvestigationPaths, state: InvestigationState, hid: str) -> Hy
     fm = _fm(path) if exists else {}
     complete = exists and validate_hypothesis(path).ok
     reg_fm = _fm(inv.registered(hid)) if rec.registered_sha256 and inv.registered(hid).exists() else {}
-    v = HypView(hid, path, exists, fm, rec, "draft", complete, reg_fm, idea=exists and is_idea(fm))
+    v = HypView(hid, path, exists, fm, rec, "draft", complete, reg_fm, idea=exists and is_idea(fm), inv_id=state.id)
     for vr in state.verdicts:
         h, _, c = vr.criterion.partition(":")
         if h == hid and c:
@@ -181,9 +228,11 @@ def plan_tests(inv: InvestigationPaths, state: InvestigationState, plan: dict) -
         raw = [raw]
     for t in raw:
         t = str(t).strip()
+        if t.startswith(f"{state.id}/"):
+            t = t[len(state.id) + 1:]
         if not t:
             continue
-        if ":" in t:
+        if ":" in t or "/" in t:
             out.append(t)
             continue
         hv = hyp_view(inv, state, t)

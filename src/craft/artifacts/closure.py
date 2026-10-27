@@ -97,19 +97,20 @@ def close_investigation(prog: Programme, inv: InvestigationPaths, state: Investi
         if h.status == "dropped" or not h.claim:
             continue
         if not h.rec.registered_sha256:
-            put("open", "Q", {"question": f"untested idea {h.id}: {h.claim}", **_tags(h, False),
+            put("open", "Q", {"question": f"untested idea {h.ref}: {h.claim}", **_tags(h, False),
                               "context": "drafted but never registered by review"})
         elif h.status == "registered" and h.untested:
             why = registry.not_tested_reason(inv, state, h)
             have = {k: v for k, v in waiting.items() if k.split(":")[0] == h.id}
-            put("open", "Q", {"question": f"untested {h.id}: {h.claim} [{', '.join(h.untested)} never judged]",
+            put("open", "Q", {"question": f"untested {h.ref}: {h.claim} [{', '.join(h.untested)} never judged]",
                               **_tags(h, h.post_hoc), "context": f"registered {h.rec.registered_at}; "
                               + (f"not tested by decision ({why})" if why else "no verdict before closure")
                               + (f"; evidence exists but was not judged: {registry.unjudged_text(have)}" if have else ""),
                               **({"unjudged_evidence": [f"{arch}/{rel}" for v in have.values() for _, rel in v]} if have else {})})
 
     for e in registry.all_experiments(inv, state):
-        src = {"origin": str(e.plan.get("origin") or "researcher"), "derived_from": str(e.plan.get("derived_from") or "")}
+        src = {"origin": str(e.plan.get("origin") or "researcher"),
+               "derived_from": registry.qualify_text(str(e.plan.get("derived_from") or ""), state.id)}
         if e.exploratory and e.status == "run":
             put("exploratory", "X", {"summary": f"exploratory experiment {e.name}: {e.description or '(no description)'}",
                                      **src, "files": [f"{arch}/{f}" for f in e.explored],
@@ -163,7 +164,8 @@ def _archived(inv: InvestigationPaths, arch: str, pointer: str) -> str:
 def _tags(h: "registry.HypView | None", post_hoc: bool) -> dict:
     if h is None:
         return {"post_hoc": post_hoc}
-    tags = {"hypothesis": h.id, "origin": h.origin, "derived_from": h.derived_from, "post_hoc": post_hoc}
+    tags = {"hypothesis": h.id, "hypothesis_ref": h.ref, "origin": h.origin,
+            "derived_from": registry.qualify_text(h.derived_from, h.inv_id), "post_hoc": post_hoc}
     if h.status in registry.OUTCOMES:
         tags["hypothesis_outcome"] = h.status
         tags["outcome_basis"] = h.label_basis()

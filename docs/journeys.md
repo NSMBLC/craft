@@ -276,6 +276,12 @@ the generator code, the seeds and the environment, and evidence may use only the
 the runner fetches just before use is recorded by the run right after fetching, and evidence produced
 before that record cannot cite it. ✓9.23
 
+With two investigations open, "H1" means two things, so every hypothesis is also `<investigation>/H<n>`:
+commands, plans and links accept it, memory records it, and `craft explain inv-001/H1` walks every
+memory entry about that hypothesis; a link naming no hypothesis is flagged. A parked idea can be
+renumbered with `craft renumber`, which rewrites every reference to it, in other investigations too; a
+reviewed or registered hypothesis keeps its number. ✓9.24
+
 Starting a follow-on investigation, she brings the sources of the earlier one over in one command:
 each keeps its record and full-text hash and says where it came from, a full text whose contents no
 longer match is not carried, and the closest prior work is judged afresh for the new question. ✓9.20
@@ -296,7 +302,7 @@ until it is a question with its context. ✓9.21
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2, 9.18, 9.20, 9.21 |
 | 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17, 9.23 |
 | 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
-| 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4, 9.22 |
+| 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4, 9.22, 9.24 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |
 | 10. Forced linearity | 8.1, 8.2, 8.3 |
 | Institutional-memory integrity | 5.6, 7.1, 9.1, 9.2, 9.4 |

@@ -94,7 +94,7 @@ the CLI refuses inside an agent tool call, and the terminal form needs an intera
 craft.yaml                     memory/findings.jsonl  refuted.jsonl  open-questions.jsonl
                                answered-questions.jsonl  exploratory.jsonl  corrections.jsonl
 investigations/<id>/           problem.md  questions.md  literature/  env.lock  closure.md
-  hypotheses/H1.md H2.md …     one per hypothesis; an idea is a file with just a claim
+  hypotheses/H1.md H2.md …     one per hypothesis; an idea is a file with just a claim (inv-001/H1 across the programme)
   experiments/<exp>/           plan.md  evidence/  exploratory/  verdict-H1-C1.md (+ .limitations.md)
   review/H1/                   round-<n>.json  round-<n>.prompt.md  registered.md   (records)
 archive/<id>/                  closed investigations, intact; hashes checked by `craft verify`
