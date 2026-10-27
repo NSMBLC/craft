@@ -62,7 +62,7 @@ def parse_iso(ts: str) -> float:
 # A hypothesis is `H<n>` inside its investigation and `<investigation>/H<n>` anywhere in the programme;
 # a criterion adds `:C<n>`. Every command that takes one accepts either form.
 HYP_REF_RE = re.compile(r"^(?:(?P<inv>[A-Za-z0-9][\w.-]*)/)?(?P<hid>H\d+)(?::(?P<crit>[\w*]+))?$")
-_BARE_HYP_RE = re.compile(r"(?<![\w/.:-])(H\d+)(?=(?::[\w*]+)?(?![\w/-]))")
+_BARE_HYP_RE = re.compile(r"(?<![\w/.:-])(H\d+)(?=(?::[\w*]+)?(?![\w/-]|\.\w))")
 
 
 def split_ref(ref: str) -> tuple[str | None, str]:
@@ -74,15 +74,26 @@ def split_ref(ref: str) -> tuple[str | None, str]:
     return m.group("inv"), str(ref).strip().split("/", 1)[-1]
 
 
-_ANY_HYP_RE = re.compile(r"(?<![\w/.:-])(?:([A-Za-z0-9][\w.-]*)/)?(H\d+)(?![\w/-])")
+_ANY_HYP_RE = re.compile(r"(?<![\w/.:-])(?:([A-Za-z0-9][\w.-]*)/)?(H\d+)(?![\w/-]|\.\w)")
+# A file pointer (`hypotheses/H1.md#criteria`, `experiments/exp1/plan.md`): a path with a directory or a file extension.
+_PATH_RE = re.compile(r"(?<![\w/.:-])((?:[\w.-]+/)+[\w.-]+|[\w-]+\.(?:md|jsonl?|ya?ml|csv|txt|py|ipynb|pdf))(#[\w.:-]*)?(?![\w/])")
 
 
 def unresolved_refs(prog, inv: InvestigationPaths, text: str) -> list[str]:
-    """Hypothesis references in `text` (`H2`, `inv-001/H1`) that name no hypothesis file, open or archived."""
+    """References in `text` that name nothing: a hypothesis (`H2`, `inv-001/H1`) with no hypothesis file, open or
+    archived, or a file pointer (`hypotheses/H1.md#criteria`) that is in neither the investigation nor the programme."""
     from .paths import InvestigationPaths as _IP
 
     out = []
-    for m in _ANY_HYP_RE.finditer(str(text or "")):
+    text = str(text or "")
+    for m in _PATH_RE.finditer(text):
+        rel = m.group(1)
+        if _ANY_HYP_RE.fullmatch(rel):
+            continue  # `inv-001/H1` is a hypothesis reference, checked below
+        if not any((root / rel).exists() for root in (inv.root, prog.root)):
+            out.append(m.group(0))
+    text = _PATH_RE.sub(lambda m: m.group(0) if _ANY_HYP_RE.fullmatch(m.group(1)) else " ", text)
+    for m in _ANY_HYP_RE.finditer(text):
         other, hid = m.group(1), m.group(2)
         if other is None:
             found = inv.hypothesis(hid).exists()
@@ -92,6 +103,11 @@ def unresolved_refs(prog, inv: InvestigationPaths, text: str) -> list[str]:
         if not found:
             out.append(m.group(0))
     return out
+
+
+def is_path_ref(ref: str) -> bool:
+    """True when `ref` (from `unresolved_refs`) is a file pointer rather than a hypothesis reference."""
+    return not _ANY_HYP_RE.fullmatch(ref)
 
 
 def qualify_text(text: str, inv_id: str) -> str:

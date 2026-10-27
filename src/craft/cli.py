@@ -428,7 +428,9 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     for doc in linked if artifact in ("all", "hypotheses", "hypothesis", "experiments") or artifact in hyp_ids else []:
         if doc.exists() and (artifact not in hyp_ids or doc == inv.hypothesis(artifact)):
             for ref in registry.unresolved_refs(prog, inv, read_doc(doc)[0].get("derived_from") or ""):
-                echo(f"  [warning] {inv.rel(doc)}: derived_from names {ref}, which is no hypothesis in the programme")
+                echo(f"  [warning] {inv.rel(doc)}: derived_from names {ref}, which is "
+                     + ("no file in the investigation or the programme" if registry.is_path_ref(ref)
+                        else "no hypothesis in the programme"))
     if artifact == "all":
         docs = [inv.problem, inv.lit_map] + [inv.hypothesis(h) for h in hyp_ids]
         for doc in docs:
@@ -463,8 +465,9 @@ def renumber(old: str = typer.Argument(..., help="The unregistered hypothesis, e
                          f"with `derived_from: {state.id}/{old}`.")
     if inv.hypothesis(new).exists() or new in state.hypotheses:
         raise CraftError(f"{state.id}/{new} already exists; pick a free number")
-    local = re.compile(rf"(?<![\w/.:-]){old}(?![\w/-])|(?<![\w.-]){re.escape(state.id)}/{old}(?![\w/-])")
-    qualified = re.compile(rf"(?<![\w.-]){re.escape(state.id)}/{old}(?![\w/-])")
+    local = re.compile(rf"(?<![\w/.:-]){old}(?![\w/-]|\.\w)|(?<![\w.-]){re.escape(state.id)}/{old}(?![\w/-]|\.\w)"
+                       rf"|(?<![\w.-])hypotheses/{old}\.md\b")
+    qualified = re.compile(rf"(?<![\w.-]){re.escape(state.id)}/{old}(?![\w/-]|\.\w)")
     if inv.problem.exists() and local.search(inv.problem.read_text(encoding="utf-8")):
         raise CraftError(f"problem.md names {old} (a kill criterion judged from it?); the approved problem statement "
                          f"is not rewritten, so {old} keeps its number.")
@@ -477,7 +480,8 @@ def renumber(old: str = typer.Argument(..., help="The unregistered hypothesis, e
         if not path.is_file():
             return
         text = path.read_text(encoding="utf-8")
-        out = pattern.sub(lambda m: f"{state.id}/{new}" if "/" in m.group(0) else new, text)
+        out = pattern.sub(lambda m: f"hypotheses/{new}.md" if m.group(0).endswith(".md")
+                          else f"{state.id}/{new}" if "/" in m.group(0) else new, text)
         if out != text:
             path.write_text(out, encoding="utf-8")
             changed.append(shown)
