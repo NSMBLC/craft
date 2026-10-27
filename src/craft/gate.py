@@ -92,7 +92,8 @@ def decide_write(prog: Programme, target: Path) -> Decision:
     if held:
         return Decision.deny(
             f"{rel} is recorded input data ('{held[1]}' in {held[0]}); criteria depend on it, so it is never changed in "
-            "place. Write a new snapshot elsewhere and record it under a new id (`craft data add <path> --id <new-id>`)."
+            "place. Write a new snapshot (for a generator, a new version) elsewhere and record it under a new id "
+            "(`craft data add <path> --id <new-id>`)."
         )
     if head != INVESTIGATIONS_DIR:
         return Decision.ok()

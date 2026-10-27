@@ -79,7 +79,7 @@ is shown as not being tested and will close as an open question; the board does 
 
 The record stays true after the fact, too. A limitation found after a verdict is attached to it
 (`craft limitation`) without changing its label, and travels with it into memory. Input data that criteria
-depend on is recorded by hash (`craft data add`, with `--derivation` saying how it was built, which the referee sees), so a changed snapshot is caught. A memory entry that
+depend on is recorded by hash (`craft data add`, with `--derivation` saying how it was built, which the referee sees), so a changed snapshot is caught. Generated inputs are recorded by their generator code and seeds (`--generated --seeds 1-50`), and inputs fetched at run time by the runner itself, right after fetching (`--fetched`). A memory entry that
 turned out wrong is corrected by you with `/craft-correct`; the entry stays as written and the correction
 is shown wherever it is.
 
