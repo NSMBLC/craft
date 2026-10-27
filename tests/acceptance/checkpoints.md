@@ -68,3 +68,4 @@
 | 9.22 | test_a_kill_criterion_is_judged_from_recorded_verdicts |
 | 9.23 | test_generated_and_fetched_inputs_are_recorded |
 | 9.24 | test_hypotheses_have_programme_wide_identity_and_can_be_renumbered |
+| 9.25 | test_each_criterion_states_how_it_is_judged |

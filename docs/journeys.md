@@ -237,7 +237,13 @@ came from: the registered outcome rule when that rule is the mechanical one, oth
 the criterion labels, shown next to the rule that governs. ✓9.6 A metric with no spread (exact enumeration
 on fixed inputs) is declared deterministic in the criterion before review, so its verdict needs no
 invented interval; one that was not declared still needs its uncertainty, and a refusal lists everything
-the evidence is missing at once. ✓9.7
+the evidence is missing at once. ✓9.7 Each criterion also says before review what it is judged on: the
+whole interval, the point estimate, or one end of the interval ("the upper bound stays below 0.05" is
+then a yes or no, never inconclusive), and a criterion whose wording names a bound it is not judged on is
+flagged. An interval the evidence supplies itself is computed by the method the criterion registered,
+and the evidence must say so; one with no registered method is accepted, and the verdict says the method
+was not checked. Kill criteria use the same word: judged on the point estimate unless the problem
+statement says the whole interval, or one end of it, must cross the line. ✓9.25
 
 The price snapshot every criterion depends on is recorded by hash. A changed or re-downloaded file is
 detected, the investigation is held until Elena has looked, the agent cannot overwrite it, and each
@@ -296,7 +302,7 @@ until it is a question with its context. ✓9.21
 | Failure mode | Checkpoints |
 |---|---|
 | 1. Vague questions | 1.3, 1.4, 1.5, 1.7 |
-| 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5, 9.5, 9.13 |
+| 2. Criteria drift | 3.2, 4.6, 5.4, 5.5, 6.3, 8.4, 8.5, 9.5, 9.13, 9.25 |
 | 3. Late confounds | 3.1 (rival explanations), 4.2 |
 | 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7, 9.19 |
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2, 9.18, 9.20, 9.21 |

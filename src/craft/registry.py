@@ -28,9 +28,16 @@ def _fm(path: Path) -> dict:
         return {}
 
 
+def _as_judged(c) -> dict:
+    """A criterion as it is judged: `judged_on: interval` is the default spelled out, so adding it changes nothing."""
+    if not isinstance(c, dict):
+        return c
+    return {k: v for k, v in c.items() if not (k == "judged_on" and v == "interval")}
+
+
 def criteria_signature(fm: dict) -> str:
     """What pre-registration protects: the criteria table and the outcome rule."""
-    crit = sorted((dict(c) for c in criteria_table(fm).values()), key=lambda c: c["name"])
+    crit = sorted((_as_judged(c) for c in criteria_table(fm).values()), key=lambda c: c["name"])
     return json.dumps({"criteria": crit, "outcome_rule": fm.get("outcome_rule")}, sort_keys=True, default=str)
 
 
@@ -40,7 +47,10 @@ JUDGED_FIELDS = ("claim", "warrant", "criteria", "outcome_rule", "rivals", "pred
 
 
 def judged_signature(fm: dict) -> str:
-    return json.dumps({k: fm.get(k) for k in JUDGED_FIELDS}, sort_keys=True, default=str)
+    out = {k: fm.get(k) for k in JUDGED_FIELDS}
+    if isinstance(out["criteria"], list):
+        out["criteria"] = [_as_judged(c) for c in out["criteria"]]
+    return json.dumps(out, sort_keys=True, default=str)
 
 
 def parse_iso(ts: str) -> float:

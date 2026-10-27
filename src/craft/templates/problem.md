@@ -13,8 +13,8 @@ kill_criteria:          # conditions under which this investigation is abandoned
     # metric: ""        # optional: make it mechanically checkable by `craft verdict`
     # op: "<"
     # value: 0
-    # from: [H1:C1, H2:C1]   # optional: judged from these recorded verdicts, not an evidence file
-    # of: point             # point | ci_low | ci_high of each cited verdict
+    # judged_on: point      # point (default) | interval (the whole 95% interval meets it) | upper_bound | lower_bound
+    # from: [H1:C1, H2:C1]   # optional: judged from these recorded verdicts (judged_on applies to each), not an evidence file
     # combine: all          # all: met when every cited result meets it; any: when one does
 memory_acknowledgements: {acks}
 ---

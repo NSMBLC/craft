@@ -5,6 +5,15 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
+## Unreleased
+
+- A criterion can declare what it is judged on (`judged_on: interval | point | upper_bound | lower_bound`) and,
+  when the evidence supplies its own interval, how that interval is computed (`interval_method`, which the
+  evidence must match); the verdict says which, and validation flags criteria that cannot be judged as
+  written (#4). Kill criteria take `judged_on` too (point estimate by default, as before); for kills judged
+  from verdicts it replaces `of:`, which still works.
+- `judged_on: interval` on a registered criterion states the default and does not change the registration.
+
 ## 0.1.0 — 2026-10-26
 
 First tagged release: the non-linear registry (several hypotheses and experiments, statuses derived, record

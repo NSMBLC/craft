@@ -22,7 +22,8 @@ from .artifacts.closure import validate_closure
 from .artifacts.literature import add_source, carry_sources, lint_priority_claims, load_sources, validate_literature
 from .artifacts.plan import validate_plan
 from .artifacts.problem import kill_criteria, validate_problem
-from .artifacts.verdict import compare, extract, label_for, load_evidence, missing_fields, render_verdict
+from .artifacts.verdict import (compare, extract, kill_judged_on, kill_met, label_for, load_evidence, missing_fields,
+                                render_verdict)
 from .cli_support import decision_cmd, decision_target, decisions_text, explain_text, load_context, status_text, verify_all
 from .human import confirm, require_human
 from .integrity import make_writable
@@ -381,7 +382,8 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
         if not full and is_idea(read_doc(inv.hypothesis(h))[0]):
             ideas.append(h)
             return
-        hv = validate_hypothesis(inv.hypothesis(h))
+        rec = state.hypotheses.get(h)
+        hv = validate_hypothesis(inv.hypothesis(h), drafting=not (rec and rec.registered_sha256))
         (results if hv.ok or strict else notes).append(hv)
 
     if artifact in ("problem", "all"):
@@ -1073,10 +1075,10 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     links = _exploratory_links(inv, experiment, exploratory)
     data = load_evidence(ev)
     det = crit.get("deterministic") or None
-    _require_complete(inv, ev, data, metric or crit["metric"], seed, data_id, det)
+    _require_complete(inv, ev, data, metric or crit["metric"], seed, data_id, det, crit.get("interval_method"))
     m = extract(data, metric or crit["metric"], det)
-    op, thr = crit["op"], float(crit["threshold"])
-    label, rationale = label_for(m, op, thr)
+    op, thr, judged_on = crit["op"], float(crit["threshold"]), crit.get("judged_on") or "interval"
+    label, rationale = label_for(m, op, thr, judged_on)
     seeds, data_ids = _repro(m, seed, data_id)
     data_records = _check_data(prog, state, data_ids, seeds, ev)
     post_hoc = _post_hoc(hv, cname, crit, data, metric)
@@ -1085,7 +1087,9 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     for k in [] if closing else kill_criteria(pfm):
         if k.get("from") is None and k["metric"] in _metric_names(data):
             km = extract(data, k["metric"], k.get("deterministic") or None)
-            if compare(k["op"], km.point, float(k["value"])):
+            hit, _, _ = kill_met(k["op"], float(k["value"]), km.point, None if km.deterministic else km.ci_low,
+                                 None if km.deterministic else km.ci_high, kill_judged_on(k))
+            if hit:
                 killed = (k, km)
                 break
 
@@ -1095,6 +1099,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
         "metric": m.metric, "op": op, "threshold": thr,
         "observed": m.point, "ci95": None if m.deterministic else [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
         "uncertainty_source": m.source, "deterministic": m.deterministic,
+        "judged_on": None if m.deterministic else judged_on, "interval_method": m.interval_method,
         "evidence": [{"path": ev_rel, "sha256": sha256_file(ev)}],
         "exploratory_links": links,
         "exploratory_note": "linked for transparency; none of these numbers are evidence for any criterion" if links else None,
@@ -1108,8 +1113,13 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     }
     if m.source == "ci" and m.ci_low == m.ci_high:
         vfm["uncertainty_note"] = "zero-width interval given; the criterion is not registered as deterministic"
+    elif m.source == "ci" and not crit.get("interval_method"):
+        vfm["uncertainty_note"] = (f"the evidence supplied its own interval ({m.interval_method or 'method not stated'}) "
+                                   "and the criterion registers no interval_method, so CRAFT cannot check that it was "
+                                   "computed as registered")
+    judged = "" if m.deterministic or judged_on == "interval" else f"; judged on the {judged_on.replace('_', ' ')}"
     body = [f"# Verdict — {experiment} / {key}: **{label.upper()}**", "",
-            f"Criterion {key} (as registered {hv.rec.registered_at}): {m.metric} {op} {thr} under: {crit.get('conditions')}",
+            f"Criterion {key} (as registered {hv.rec.registered_at}): {m.metric} {op} {thr}{judged} under: {crit.get('conditions')}",
             f"Observed: {_observed(m)} — {rationale}", "",
             "Evidence: " + ", ".join(f"`{e['path']}` (sha256 {e['sha256'][:12]})" for e in vfm["evidence"]),
             f"Reproducibility: seeds {seeds}; data {data_ids}; env v{state.env.version} ({(state.env.lock_sha256 or '')[:12]}); "
@@ -1248,7 +1258,7 @@ def _dry_run(prog: Programme, inv: InvestigationPaths, state: InvestigationState
     data = load_evidence(ev)
     name = metric or crit["metric"]
     det = crit.get("deterministic") or None
-    problems = missing_fields(data, name, seed, data_id, det)
+    problems = missing_fields(data, name, seed, data_id, det, crit.get("interval_method"))
     for did in (data_id or [(_block(data, name) or {}).get("data_id") or data.get("data_id")]):
         rec = state.data.get(str(did)) if did else None
         if rec:
@@ -1265,8 +1275,15 @@ def _dry_run(prog: Programme, inv: InvestigationPaths, state: InvestigationState
             echo(f"  - {p}")
         raise typer.Exit(code=1)
     m = extract(data, name, det)
-    how = {"values": f"{m.n} per-run values (t interval)", "ci": "a supplied interval",
+    stated = m.interval_method or (f"method not stated; the evidence states it as \"interval_method\" (flat shape: "
+                                   f"\"{name}_interval_method\")")
+    how = {"values": f"{m.n} per-run values (t interval)",
+           "ci": f"a supplied interval ({stated})"
+                 + ("" if crit.get("interval_method") else "; the criterion registers no interval_method, so the verdict "
+                    "will note that the method was not checked"),
            "deterministic": f"a single value (deterministic: {det})"}[m.source]
+    how += (", judged on: point (deterministic)" if m.source == "deterministic"
+            else f", judged on: {crit.get('judged_on') or 'interval'}")
     echo(f"DRY RUN — {evidence} would be accepted for {label}: metric {name} with {how}; seeds and data_id present. "
          "Nothing was recorded and no label was computed. For the real verdict the file must be under "
          "experiments/<exp>/evidence/ and produced after registration.")
@@ -1296,7 +1313,7 @@ def _post_hoc(hv: registry.HypView, cname: str, reg: dict, data: dict, metric: O
     if cur is None:
         return {"changed": True, "note": f"{cname} was removed from hypotheses/{hv.id}.md after registration. "
                                          "The label above is the pre-registered one."}
-    keys = ("metric", "op", "threshold", "conditions")
+    keys = ("metric", "op", "threshold", "conditions", "judged_on", "interval_method")
     diffs = [f"{k} {reg.get(k)!r} -> {cur.get(k)!r}" for k in keys if reg.get(k) != cur.get(k)]
     if not diffs:
         return {"changed": False, "note": f"other criteria or the outcome rule of {hv.id} changed after registration; "
@@ -1305,7 +1322,7 @@ def _post_hoc(hv: registry.HypView, cname: str, reg: dict, data: dict, metric: O
     try:
         m2 = extract(data, metric if metric and cur.get("metric") == reg.get("metric") else cur["metric"],
                      cur.get("deterministic") or None)
-        label2, _ = label_for(m2, cur["op"], float(cur["threshold"]))
+        label2, _ = label_for(m2, cur["op"], float(cur["threshold"]), cur.get("judged_on"))
         out["label_under_changed_criterion"] = label2
         tail = f" Under the changed criterion this would be {label2.upper()}."
     except (CraftError, KeyError, TypeError, ValueError):
@@ -1341,8 +1358,8 @@ def _data_lines(state: InvestigationState, data_ids: list, data_records: list[di
 
 
 def _require_complete(inv: InvestigationPaths, ev: Path, data: dict, metric: str, seed: list[str], data_id: list[str],
-                      deterministic: str | None) -> None:
-    problems = missing_fields(data, metric, seed, data_id, deterministic)
+                      deterministic: str | None, interval_method: str | None = None) -> None:
+    problems = missing_fields(data, metric, seed, data_id, deterministic, interval_method)
     if problems:
         raise CraftError(f"{inv.rel(ev)} cannot back a verdict yet. Everything missing:\n  - " + "\n  - ".join(problems))
 
@@ -1350,7 +1367,8 @@ def _require_complete(inv: InvestigationPaths, ev: Path, data: dict, metric: str
 def _observed(m) -> str:
     if m.deterministic:
         return f"{m.point:.6g} (deterministic: {m.deterministic}; no interval)"
-    return f"{m.point:.6g} (95% CI [{m.ci_low:.6g}, {m.ci_high:.6g}], n={m.n})"
+    method = f", {m.interval_method}" if m.source == "ci" and m.interval_method else ""
+    return f"{m.point:.6g} (95% CI [{m.ci_low:.6g}, {m.ci_high:.6g}], n={m.n}{method})"
 
 
 def _repro(m, seed: list[str], data_id: list[str]) -> tuple[list, list]:
@@ -1400,10 +1418,11 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
     ev = _resolve_evidence(inv, experiment, evidence)
     data = load_evidence(ev)
     det = k.get("deterministic") or None
-    _require_complete(inv, ev, data, metric or k["metric"], seed, data_id, det)
+    _require_complete(inv, ev, data, metric or k["metric"], seed, data_id, det, k.get("interval_method"))
     m = extract(data, metric or k["metric"], det)
-    op, value = k["op"], float(k["value"])
-    met = compare(op, m.point, value)
+    op, value, judged_on = k["op"], float(k["value"]), kill_judged_on(k)
+    met, x, what = kill_met(op, value, m.point, None if m.deterministic else m.ci_low,
+                            None if m.deterministic else m.ci_high, judged_on)
     label = "kill-met" if met else "kill-not-met"
     seeds, data_ids = _repro(m, seed, data_id)
     data_records = _check_data(prog, state, data_ids, seeds, ev)
@@ -1413,6 +1432,7 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
         "condition": k.get("condition"), "metric": m.metric, "op": op, "value": value,
         "observed": m.point, "ci95": None if m.deterministic else [m.ci_low, m.ci_high], "n": m.n, "unit": m.unit,
         "uncertainty_source": m.source, "deterministic": m.deterministic,
+        "judged_on": None if m.deterministic else judged_on, "interval_method": m.interval_method, "compared": x,
         "evidence": [{"path": ev_rel, "sha256": sha256_file(ev)}],
         "seeds": seeds, "data_ids": data_ids, "data_records": data_records,
         "env_version": state.env.version, "env_lock_sha256": state.env.lock_sha256,
@@ -1420,7 +1440,7 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
         "created": now_iso(),
     }
     body = [f"# Kill check — {experiment} / {k['id']}: **{label.upper()}**", "",
-            f"Kill criterion {k['id']}: {k.get('condition')}  ({m.metric} {op} {value})",
+            f"Kill criterion {k['id']}: {k.get('condition')}  ({m.metric} {op} {value}, judged on the {what})",
             f"Observed: {_observed(m)}", "",
             "Evidence: " + ", ".join(f"`{e['path']}` (sha256 {e['sha256'][:12]})" for e in vfm["evidence"]),
             f"Reproducibility: seeds {seeds}; data {data_ids}; env v{state.env.version} ({(state.env.lock_sha256 or '')[:12]})"]
@@ -1432,12 +1452,13 @@ def _kill_check(prog, inv, state, experiment: str, k: dict, evidence: Path, metr
     state.verdicts = [v for v in state.verdicts if not (v.experiment == experiment and v.criterion == k["id"])]
     state.verdicts.append(VerdictRef(experiment=experiment, criterion=k["id"], label=label, file=rel_v, when=now_iso()))
     if met:
-        _route_to_closing(inv, state, k, m.point, ev_rel)
-        echo(f"KILL CRITERION {k['id']} MET ({k.get('condition')}; observed {m.point:.6g} {op} {value}). Written to {rel_v}. "
+        _route_to_closing(inv, state, k, x, ev_rel)
+        echo(f"KILL CRITERION {k['id']} MET ({k.get('condition')}; {what} {x:.6g} {op} {value}). Written to {rel_v}. "
              "Remaining experiments are halted; the investigation is routed to closure. " + _after_kill(inv, state))
         return
     state.save(inv.root)
-    echo(f"Kill criterion {k['id']} NOT met (observed {m.point:.6g}, kill if {op} {value}). Recorded in {rel_v}; execution continues.")
+    echo(f"Kill criterion {k['id']} NOT met ({what} {x:.6g}, kill if {op} {value}; point estimate {m.point:.6g}). "
+         f"Recorded in {rel_v}; execution continues.")
 
 
 def _kill_sources(inv: InvestigationPaths, state: InvestigationState, k: dict) -> tuple[list[dict], list[str]]:
@@ -1456,17 +1477,18 @@ def _kill_sources(inv: InvestigationPaths, state: InvestigationState, k: dict) -
                              f"({', '.join(v.experiment for v in hits)}); name one in problem.md as <exp>:{key}")
         v = hits[0]
         fm, _ = read_doc(inv.root / v.file)
-        of = k.get("of", "point")
+        of = kill_judged_on(k)
         ci = fm.get("ci95")
         if of != "point" and not ci:
-            raise CraftError(f"kill criterion {k['id']} compares each cited verdict's {of}, but {v.file} has no interval "
-                             f"({'deterministic' if fm.get('deterministic') else 'none recorded'}); use `of: point`.")
+            raise CraftError(f"kill criterion {k['id']} is judged on each cited verdict's {of.replace('_', ' ')}, but {v.file} "
+                             f"has no interval ({'deterministic' if fm.get('deterministic') else 'none recorded'}); use "
+                             "`judged_on: point`.")
         if fm.get("metric") != k["metric"]:
             raise CraftError(f"kill criterion {k['id']} is about {k['metric']}, but {v.file} measured {fm.get('metric')}; "
                              "cite verdicts on the kill criterion's metric.")
-        value = float(fm["observed"]) if of == "point" else float(ci[0] if of == "ci_low" else ci[1])
+        hit, value, _ = kill_met(k["op"], float(k["value"]), float(fm["observed"]), *(map(float, ci) if ci else (None, None)), of)
         cited.append({"ref": str(ref), "experiment": v.experiment, "criterion": key, "label": v.label, "path": v.file,
-                      "sha256": state.records.get(v.file), "value": value})
+                      "sha256": state.records.get(v.file), "value": value, "hit": hit})
     return cited, missing
 
 
@@ -1491,22 +1513,22 @@ def _kill_from_results(inv: InvestigationPaths, state: InvestigationState, exper
         raise CraftError(f"record kill criterion {k['id']} under an experiment it is judged from "
                          f"({', '.join(sorted({c['experiment'] for c in cited}))}), not {experiment}.")
     _refuse_if_cited(inv, state, experiment, k["id"])
-    op, value, of, how = k["op"], float(k["value"]), k.get("of", "point"), k.get("combine", "all")
-    hits = [compare(op, c["value"], value) for c in cited]
+    op, value, of, how = k["op"], float(k["value"]), kill_judged_on(k), k.get("combine", "all")
+    hits = [c["hit"] for c in cited]
     met = all(hits) if how == "all" else any(hits)
     label = "kill-met" if met else "kill-not-met"
     vfm = {
         "experiment": experiment, "criterion": k["id"], "kind": "kill-criterion", "label": label,
-        "condition": k.get("condition"), "metric": k["metric"], "op": op, "value": value, "of": of, "combine": how,
+        "condition": k.get("condition"), "metric": k["metric"], "op": op, "value": value, "judged_on": of, "combine": how,
         "from_verdicts": [{x: c[x] for x in ("ref", "path", "sha256", "label", "value")} for c in cited],
         "env_version": state.env.version, "env_lock_sha256": state.env.lock_sha256,
         "problem_sha256": state.problem_sha256,
         "created": now_iso(),
     }
     body = [f"# Kill check — {experiment} / {k['id']}: **{label.upper()}**", "",
-            f"Kill criterion {k['id']}: {k.get('condition')}  ({how} of: {of} of {k['metric']} {op} {value})", "",
+            f"Kill criterion {k['id']}: {k.get('condition')}  ({how} of: {of.replace('_', ' ')} of {k['metric']} {op} {value})", "",
             "Judged from recorded verdicts (no evidence file):"]
-    body += [f"- {c['ref']}: {of} {c['value']:.6g} ({'meets' if h else 'does not meet'} {op} {value}); "
+    body += [f"- {c['ref']}: {of.replace('_', ' ')} {c['value']:.6g} ({'meets' if h else 'does not meet'} {op} {value}); "
              f"`{c['path']}` (sha256 {(c['sha256'] or '')[:12]}, label {c['label']})" for c, h in zip(cited, hits)]
     vpath = inv.verdict(experiment, k["id"])
     _write_record(inv, state, vpath, render_verdict(vfm, body))

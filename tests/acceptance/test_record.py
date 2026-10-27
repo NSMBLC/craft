@@ -655,3 +655,90 @@ def test_hypotheses_have_programme_wide_identity_and_can_be_renumbered(programme
     assert finding["id"] in out, out
     r = c("explain", "inv-002/H1")
     assert r.code != 0 and "open investigation" in r.err
+
+
+@pytest.mark.checkpoint("9.25")
+def test_each_criterion_states_how_it_is_judged(programme: Craft):
+    from craft.artifacts.hypothesis import validate_hypothesis
+
+    c = programme
+    c1 = "    conditions: 5 seeds, inputs >= 1e6 tokens, 2026 corpus snapshot, identical 40-trial tuning budget for A and B\n"
+    c2 = "    conditions: same runs as C1, p50 latency of A over B\n"
+    c3 = "    conditions: same runs as C1\n"
+    method = "Percentile bootstrap, 10000 resamples over seeds"
+    hyp = (HYP_FIXED_O2.replace(c1, c1 + "    judged_on: lower_bound\n").replace(c2, c2 + "    judged_on: point\n")
+           .replace(c3, c3 + f"    interval_method: \"{method}\"\n"))
+    # criteria that cannot be judged as written are flagged before review
+    bad = c.write("bad/H1.md", hyp.replace("judged_on: lower_bound", "judged_on: upper_bound")
+                  .replace("judged_on: point", "judged_on: median"))
+    errs = {e.field: e.problem for e in validate_hypothesis(bad).errors}
+    assert "not '>='" in errs["criteria[0].judged_on"] and "must be one of" in errs["criteria[1].judged_on"], errs
+    hint = c.write("hint/H1.md", HYP_FIXED_O2.replace(c1, "    conditions: the upper bound of the gain's interval\n"))
+    warned = lambda path, f: any(w.field == f for w in validate_hypothesis(path).findings if w.severity == "warning")
+    assert warned(hint, "criteria[0].judged_on")
+    assert not any(w.field == "criteria[0].judged_on" for w in validate_hypothesis(hint, drafting=False).findings)
+    picks = c.write("picks/H1.md", HYP_FIXED_O2.replace(c1, "    conditions: the seed with the largest lower bound is "
+                                                       "reported; met iff its whole interval lies at or above 1.5\n"))
+    assert not warned(picks, "criteria[0].judged_on")  # a bound that only picks what is reported is not a judgement
+    boot = c.write("boot/H1.md", HYP_FIXED_O2.replace(c1, "    conditions: 2000 paired re-draws with seed 7\n"))
+    assert warned(boot, "criteria[0].interval_method")
+    inv = open_inv(c, hyp=hyp)
+    plan(c, inv, "exp1", "description: d\ntests: [H1:C1, H1:C2, H1:C3]")
+    d = f"investigations/{inv}/experiments/exp1/evidence"
+    # C1 is judged on its lower bound: an interval spanning the threshold is refuted, not inconclusive
+    e = ev(c, f"{d}/c1.json", "accuracy_gain", [1.2, 1.8, 1.5, 1.9, 1.4])
+    r = c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", e, "--inv", inv)
+    assert "REFUTED" in r.out and "lower bound of the 95% interval" in r.out, r.text
+    fm, body = split_frontmatter((c.root / d / ".." / "verdict-H1-C1.md").resolve().read_text())
+    assert fm["judged_on"] == "lower_bound" and "judged on the lower bound" in body
+    # C2 is judged on the point estimate
+    e = ev(c, f"{d}/c2.json", "latency_ratio", [1.1, 1.3, 1.15, 1.25, 1.2])
+    r = c("verdict", "exp1", "--criterion", "H1:C2", "--evidence", e, "--inv", inv)
+    assert "SUPPORTED" in r.out and "point estimate" in r.out, r.text
+    # C3 registered its interval method: the evidence must supply that interval and say so
+    e = ev(c, f"{d}/c3a.json", "recall_at_10", [0.85, 0.86, 0.84, 0.85, 0.87])
+    r = c("verdict", "exp1", "--criterion", "H1:C3", "--evidence", e, "--inv", inv)
+    assert r.code != 0 and "registers its interval as" in r.err, r.text
+    e = ev(c, f"{d}/c3b.json", "recall_at_10", None, value=0.85, ci=[0.83, 0.87], interval_method="t over seeds")
+    r = c("verdict", "exp1", "--criterion", "H1:C3", "--evidence", e, "--inv", inv)
+    assert r.code != 0 and 'the evidence says "t over seeds"' in r.err, r.text
+    e = ev(c, f"{d}/c3c.json", "recall_at_10", None, value=0.85, ci=[0.83, 0.87], interval_method=method.lower())
+    r = c("verdict", "exp1", "--criterion", "H1:C3", "--evidence", e, "--inv", inv)
+    assert "SUPPORTED" in r.out, r.text
+    fm, body = split_frontmatter((c.root / d / ".." / "verdict-H1-C3.md").resolve().read_text())
+    assert fm["interval_method"] == method.lower() and "percentile bootstrap" in body
+    # a supplied interval with no registered method is accepted, and the record says the method came after the data
+    e = ev(c, f"{d}/c1b.json", "accuracy_gain", None, value=1.8, ci=[1.6, 2.0])
+    r = c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", e, "--dry-run", "--inv", inv)
+    assert "registers no interval_method" in r.out and "judged on: lower_bound" in r.out, r.text
+    assert 'the evidence states it as "interval_method"' in r.out, r.text
+    # spelling out the default on a registered criterion changes nothing about the registration
+    h1 = c.root / "investigations" / inv / "hypotheses" / "H1.md"
+    h1.write_text(h1.read_text().replace(c3, c3 + "    judged_on: interval\n"))
+    from craft import registry
+    from craft.paths import InvestigationPaths, Programme
+    from craft.state import InvestigationState
+    ip = InvestigationPaths(Programme(c.root).investigation_dir(inv))
+    hv = registry.hyp_view(ip, InvestigationState.load(ip.root), "H1")
+    assert not hv.changed_since_registration and not hv.post_hoc
+    assert "H1 is now REGISTERED" not in c("review", "--inv", inv, env={"CRAFT_REFEREE_BACKEND": "fake"}).out
+    # kill criteria say the same: the point estimate by default, or the whole interval, or one end of it
+    from craft.artifacts.problem import validate_problem
+
+    kills = ("  - id: K2\n    condition: the ratio's whole interval is below 2\n    metric: median_ratio\n"
+             "    op: \"<\"\n    value: 2\n    judged_on: interval\n"
+             "  - id: K3\n    condition: the ratio's point estimate is below 2\n    metric: median_ratio\n"
+             "    op: \"<\"\n    value: 2\n")
+    problem = PROBLEM.replace("memory_acknowledgements: []", kills + "memory_acknowledgements: []")
+    bad = c.write("bad/problem.md", problem.replace("judged_on: interval", "judged_on: lower_bound"))
+    assert any(e.field == "kill_criteria[1].judged_on" for e in validate_problem(bad).errors)
+    clash = c.write("clash/problem.md", problem.replace("judged_on: interval", "judged_on: interval\n    of: ci_low"))
+    assert any(e.field == "kill_criteria[1].of" for e in validate_problem(clash).errors)
+    inv2 = open_inv(c, inv="inv-002", problem=problem)
+    e = ev(c, f"investigations/{inv2}/experiments/pilot/evidence/ratio.json", "median_ratio", [1.6, 1.9, 2.1, 1.7, 1.8])
+    r = c("verdict", "pilot", "--criterion", "K2", "--evidence", e, "--inv", inv2)
+    assert "NOT met" in r.out and "whole 95% interval" in r.out, r.text  # the interval reaches above 2
+    r = c("verdict", "pilot", "--criterion", "K3", "--evidence", e, "--inv", inv2)
+    assert "KILL CRITERION K3 MET" in r.out and "point estimate" in r.out, r.text
+    fm, _ = split_frontmatter((c.root / "investigations" / inv2 / "experiments" / "pilot" / "verdict-K2.md").read_text())
+    assert fm["judged_on"] == "interval" and fm["label"] == "kill-not-met"

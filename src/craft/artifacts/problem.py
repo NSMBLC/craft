@@ -3,8 +3,9 @@
 Required shape (frontmatter):
   studying, to_find_out, so_that.reader, so_that.understands, cost_of_not_answering,
   kill_criteria[] (each: id, condition; optionally metric/op/value for mechanical checks, and
-    `from: [H1:C1, ...]` to judge it from those recorded verdicts, with `of: point|ci_low|ci_high` and
-    `combine: all|any`),
+    `judged_on: point|interval|upper_bound|lower_bound` (point when absent), and `from: [H1:C1, ...]` to
+    judge it from those recorded verdicts, with `combine: all|any`; `of: point|ci_low|ci_high` is the older
+    spelling of `judged_on` there),
   memory_acknowledgements[] (filled by `craft new`).
 Body: at most `limits.problem_max_words` words (one page).
 """
@@ -15,6 +16,7 @@ from pathlib import Path
 
 from ..util import read_doc, word_count
 from .common import Validation, looks_weak, nonempty
+from .verdict import _OF_ALIAS, judging_problems
 
 OPS = {"<", "<=", ">", ">=", "==", "!="}
 KILL_OF = ("point", "ci_low", "ci_high")
@@ -74,7 +76,12 @@ def validate_problem(path: Path, max_words: int = 600) -> Validation:
                 if any(s is None for s in structured):
                     v.error(f"kill_criteria[{i}].from", "needs metric/op/value: the value each cited verdict is compared with")
             if k.get("of", "point") not in KILL_OF:
-                v.error(f"kill_criteria[{i}].of", f"which recorded value is compared: one of {', '.join(KILL_OF)}")
+                v.error(f"kill_criteria[{i}].of", f"which recorded value is compared: one of {', '.join(KILL_OF)} "
+                        "(or write it as `judged_on:`)")
+            elif k.get("of") is not None and k.get("judged_on") is not None and _OF_ALIAS[k["of"]] != k["judged_on"]:
+                v.error(f"kill_criteria[{i}].of", f"says {k['of']} but judged_on says {k['judged_on']}; keep judged_on only")
+            for field_, msg in judging_problems(k):
+                v.error(f"kill_criteria[{i}].{field_}", msg)
             if k.get("combine", "all") not in KILL_COMBINE:
                 v.error(f"kill_criteria[{i}].combine", "`all` (met when every cited result meets it) or `any` (when one does)")
 
