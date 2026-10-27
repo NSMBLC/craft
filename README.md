@@ -1,5 +1,10 @@
 # CRAFT
 
+[![CI](https://github.com/NSMBLC/craft/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NSMBLC/craft/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/NSMBLC/craft?label=release&sort=semver)](CHANGELOG.md)
+![Python](https://img.shields.io/badge/python-%E2%89%A53.12-blue)
+![Status](https://img.shields.io/badge/status-alpha-orange)
+
 Disciplined computational research inside a GenAI session.
 
 CRAFT keeps a research programme honest without making it linear. An investigation holds a
