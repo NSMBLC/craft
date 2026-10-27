@@ -4,9 +4,10 @@ The Bash screen used to treat every path in a `python -c` or heredoc program as 
 the code contained `open(..., 'w')`, `shutil` or `write_text`, so a script that reads the archive and
 copies into a new investigation was refused. Here only the paths that reach a writing call count:
 the destination of a copy, the file opened for writing, the directory created. A path is followed
-through simple assignments and `for` loops; `a / b` keeps the left side's paths, and `.name`-like
-attributes carry none. A write whose target cannot be traced to any literal makes the result
-`None`, and the caller falls back to every path in the code, as before.
+through simple assignments, `for` loops and the parameters of functions defined in the code; `a / b`
+keeps the left side's paths, and `.name`-like attributes or what a read returns carry none. A write
+whose target cannot be traced to any literal counts every path that is bound to a name or appears in
+that target; a literal used only inline (`open('archive/x').read()`) cannot reach it and never counts.
 """
 
 from __future__ import annotations
@@ -19,10 +20,11 @@ _BOTH = {"move", "rename", "replace", "renames"}
 _FIRST = {"remove", "unlink", "rmdir", "removedirs", "rmtree", "makedirs", "mkdir", "truncate", "chmod", "chown"}
 _METHODS = {"write_text", "write_bytes", "mkdir", "touch", "unlink", "rmdir", "chmod"}
 _WRITE_MODE_CHARS = set("wax+")
+_RETURNS_DATA = {"read_text", "read_bytes", "read", "readline", "readlines", "exists", "is_file", "is_dir", "stat"}
 
 
 def write_targets(code: str) -> list[str] | None:
-    """Literal paths the code writes, or None when a write target cannot be traced (or it does not parse)."""
+    """Literal paths the code may write, or None when it does not parse."""
     try:
         tree = ast.parse(code)
     except (SyntaxError, ValueError):
@@ -50,7 +52,9 @@ def write_targets(code: str) -> list[str] | None:
             if isinstance(f, ast.Attribute) and f.attr in ("join",) and isinstance(f.value, ast.Attribute):
                 return sources(node.args[0]) if node.args else set()  # os.path.join(base, ...)
             if isinstance(f, ast.Attribute):
-                return sources(f.value)  # p.with_suffix(...), p.glob(...), p.resolve()
+                return set() if f.attr in _RETURNS_DATA else sources(f.value)
+            if isinstance(f, ast.Name) and f.id == "open":
+                return set()  # a file object, not a path  # p.with_suffix(...), p.glob(...), p.resolve()
             return set().union(*(sources(a) for a in node.args[:1])) if node.args else set()
         if isinstance(node, ast.Subscript):
             return sources(node.value)
@@ -65,9 +69,31 @@ def write_targets(code: str) -> list[str] | None:
             for t in target.elts:
                 bind(t, value)
 
-    # two passes so a name assigned after its first use in a loop body is still traced
-    for _ in range(2):
+    funcs = {n.name: n.args for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def bind_call(call: ast.Call) -> None:
+        sig = funcs.get(call.func.id) if isinstance(call.func, ast.Name) else None
+        if sig is None:
+            return
+        params = [a.arg for a in sig.posonlyargs + sig.args]
+        for name, value in zip(params, call.args):
+            env[name] = env.get(name, set()) | sources(value)
+        for k in call.keywords:
+            if k.arg:
+                env[k.arg] = env.get(k.arg, set()) | sources(k.value)
+
+    for sig in funcs.values():
+        positional = sig.posonlyargs + sig.args
+        for a, d in zip(positional[len(positional) - len(sig.defaults):], sig.defaults):
+            bind(ast.Name(a.arg), sources(d))
+        for a, d in zip(sig.kwonlyargs, sig.kw_defaults):
+            bind(ast.Name(a.arg), sources(d))
+
+    # three passes so a name assigned after its first use (a loop body, a function called later) is traced
+    for _ in range(3):
         for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                bind_call(node)
             if isinstance(node, ast.Assign):
                 for t in node.targets:
                     bind(t, sources(node.value))
@@ -86,6 +112,8 @@ def write_targets(code: str) -> list[str] | None:
         found = sources(expr)
         if not found:
             opaque = True
+            if expr is not None:  # whatever literals the untraced target is built from
+                found = {n.value for n in ast.walk(expr) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
         out.extend(sorted(found))
 
     def mode_of(call: ast.Call, pos: int) -> str:
@@ -116,7 +144,9 @@ def write_targets(code: str) -> list[str] | None:
                 hit(a)
         elif name in _FIRST and (_module(f, "os") or _module(f, "shutil")):
             hit(args[0] if args else None)
-    return None if opaque else out
+    if opaque:  # the untraced target could be built from any path held in a name
+        out.extend(sorted(set().union(*env.values()) - set(out)))
+    return out
 
 
 def _module(f: ast.AST, mod: str) -> bool:
