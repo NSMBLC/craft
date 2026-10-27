@@ -630,6 +630,12 @@ def test_hypotheses_have_programme_wide_identity_and_can_be_renumbered(programme
     c.write("investigations/inv-002/hypotheses/H2.md", "---\nclaim: an idea\nderived_from: inv-001/H9 and H1\n---\n")
     out = c("validate", "--inv", "inv-002").out
     assert "derived_from names inv-001/H9, which is no hypothesis" in out and "names H1," not in out, out
+    # a file pointer resolves as that file; only one that names nothing is flagged
+    c.write(f"{h}/H5.md", "---\nclaim: a follow-up\nderived_from: hypotheses/H3.md#criteria, from "
+            "experiments/run1/plan.md and notes/missing.md\n---\n")
+    out = c("validate", "--inv", inv).out
+    assert "names hypotheses/" not in out and "names experiments/" not in out, out
+    assert "derived_from names notes/missing.md, which is no file in the investigation or the programme" in out, out
     r = c("validate", "inv-001/H1", "--inv", "inv-002")
     assert r.code != 0 and "is a hypothesis of inv-001" in r.err
     r = c("renumber", "H1", "H5", "--inv", inv)
@@ -638,6 +644,7 @@ def test_hypotheses_have_programme_wide_identity_and_can_be_renumbered(programme
     assert r.code == 0 and "Renumbered inv-001/H3 to inv-001/H4" in r.out, r.text
     assert not (c.root / f"{h}/H3.md").exists() and "# H4" in (c.root / f"{h}/H4.md").read_text()
     assert "derived_from: H4" in (c.root / f"{h}/H2.md").read_text()
+    assert "derived_from: hypotheses/H4.md#criteria" in (c.root / f"{h}/H5.md").read_text()
     assert (c.root / f"investigations/{inv}/questions.md").read_text() == "- does H4 hold for H30-style inputs?\n"
     assert "derived_from: inv-001/H4" in (c.root / "investigations/inv-002/hypotheses/H1.md").read_text()
     r = c("renumber", "H4", "H2", "--inv", inv)

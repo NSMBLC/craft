@@ -13,6 +13,8 @@ upgrading, run `craft init` at the root of each programme; it reports the versio
   written (#4). Kill criteria take `judged_on` too (point estimate by default, as before); for kills judged
   from verdicts it replaces `of:`, which still works.
 - `judged_on: interval` on a registered criterion states the default and does not change the registration.
+- A file pointer in `derived_from` (`hypotheses/H1.md#criteria`) is read as that file, not as a hypothesis of
+  another investigation; only one naming no file is flagged, and `craft renumber` rewrites it (#36).
 
 ## 0.1.0 — 2026-10-26
 
