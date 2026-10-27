@@ -10,6 +10,9 @@ criteria:
     threshold: 0
     conditions: ""       # seeds, input sizes, budgets under which the metric counts
     # deterministic: ""  # only if the metric has no run-to-run spread: say why; judged on one value
+    # judged_on: interval  # interval (whole 95% interval; the default) | point | upper_bound (op < or <=) | lower_bound (> or >=)
+    # interval_method: "" # if the evidence supplies its own interval: how it is computed; the evidence says the
+                          # same as "interval_method" next to its "ci" (flat shape: "<metric>_interval_method")
 outcome_rule:
   supported: ""
   refuted: ""

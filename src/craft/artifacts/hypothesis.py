@@ -11,12 +11,19 @@ from pathlib import Path
 from ..util import read_doc
 from .common import Validation, nonempty
 from .fields import unrecognised
+from .verdict import JUDGED_ON, judging_problems
 
 OPS = {"<", "<=", ">", ">=", "==", "!="}
 REQUIRED_OUTCOMES = ("supported", "refuted", "inconclusive")
+_JUDGING_WORDS = re.compile(r"\b(?:upper|lower) (?:bound|end|limit)\b|\bpoint estimate\b", re.I)
+_WHOLE_INTERVAL = re.compile(r"\b(?:whole|entire|full)\b[^.;]{0,20}\binterval\b|\binterval lies\b", re.I)
+_METHOD_WORDS = re.compile(r"\bbootstrap|\bpermutation|\bre-?draws?\b|\bresampl|\border[- ]statistic|\bquantile interval\b"
+                           r"|\bwilson\b|\bclopper|\bexact binomial\b|\bjackknife\b", re.I)
 
 
-def validate_hypothesis(path: Path) -> Validation:
+def validate_hypothesis(path: Path, drafting: bool = True) -> Validation:
+    """`drafting` False for a registered hypothesis: hints about how to write a criterion are left out there,
+    because acting on them would change a registered criterion."""
     v = Validation(f"hypotheses/{path.name}")
     fm, body = read_doc(path)
     for field_, msg in unrecognised(fm, "hypothesis"):
@@ -53,6 +60,26 @@ def validate_hypothesis(path: Path) -> Validation:
                 v.error(f"criteria[{i}].threshold", "must be a number")
             if "deterministic" in c and not nonempty(c.get("deterministic")):
                 v.error(f"criteria[{i}].deterministic", "say why the metric has no spread (e.g. exact enumeration on fixed inputs), or remove it")
+            for field_, msg in judging_problems(c):
+                v.error(f"criteria[{i}].{field_}", msg)
+            if drafting and c.get("judged_on") is None and not c.get("deterministic"):
+                rule = fm.get("outcome_rule") if isinstance(fm.get("outcome_rule"), dict) else {}
+                texts = [c.get("conditions"), c.get("notes")]  # the rule's branches only where they name this criterion
+                texts += [b for b in rule.values() if isinstance(b, str)
+                          and (len(criteria) == 1 or re.search(rf"\b{re.escape(str(c.get('name')))}\b", b))]
+                text = " ".join(str(x or "") for x in texts)
+                said = _JUDGING_WORDS.search(text)
+                if said and not _WHOLE_INTERVAL.search(text):  # a bound that only picks what is reported is fine
+                    v.warn(f"criteria[{i}].judged_on", f"the text speaks of the {said.group(0).lower()}, but "
+                           f"{c.get('name') or 'this criterion'} is judged on its whole interval; set `judged_on:` "
+                           f"({', '.join(JUDGED_ON)}) so CRAFT judges it as written. `judged_on: interval` states the "
+                           "default and never touches a registration")
+            if drafting and not c.get("deterministic") and not c.get("interval_method"):
+                named = _METHOD_WORDS.search(" ".join(str(c.get(k) or "") for k in ("conditions", "notes")))
+                if named:
+                    v.warn(f"criteria[{i}].interval_method", f"the conditions name an interval method ({named.group(0)}...); "
+                           "state it as `interval_method:` so the verdict checks the evidence used it (on a registered "
+                           "criterion this is a criterion change)")
             if c.get("name") in names:
                 v.error(f"criteria[{i}].name", "duplicate criterion name")
             names.add(c.get("name"))

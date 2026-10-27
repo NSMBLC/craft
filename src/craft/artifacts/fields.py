@@ -5,7 +5,8 @@ from __future__ import annotations
 
 HYPOTHESIS_FIELDS = {"claim", "origin", "derived_from", "warrant", "criteria", "outcome_rule", "rivals",
                      "predictions", "power", "dropped", "deferred", "notes"}
-CRITERION_FIELDS = {"name", "metric", "op", "threshold", "conditions", "deterministic", "unit", "notes"}
+CRITERION_FIELDS = {"name", "metric", "op", "threshold", "conditions", "deterministic", "judged_on", "interval_method",
+                    "unit", "notes"}
 OUTCOME_RULE_FIELDS = {"supported", "refuted", "inconclusive", "mechanical"}
 PLAN_FIELDS = {"description", "title", "tests", "exploratory", "origin", "derived_from", "abandoned", "notes"}
 

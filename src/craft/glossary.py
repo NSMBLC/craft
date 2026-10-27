@@ -40,6 +40,11 @@ GLOSSARY: list[tuple[str, str, str, str]] = [
      "what the changed one would conclude", "tagged post_hoc"),
     ("Declared in files", "deterministic", "a criterion whose metric has no run-to-run spread, declared before review; judged on one value",
      "as its label"),
+    ("Declared in files", "judged_on", "what a criterion compares with its threshold, fixed before review: the whole 95% "
+     "interval (the default; inconclusive when it spans the threshold), the point estimate, or the interval's upper or "
+     "lower bound. A kill criterion uses the same word, with the point estimate as its default", "as its label"),
+    ("Declared in files", "interval_method", "how a criterion's interval is computed when the evidence supplies it, fixed "
+     "before review; the evidence states the same method as `interval_method` beside its `ci`", "as its label"),
     ("Declared in files", "mechanical", "an outcome rule that is exactly CRAFT's roll-up (all supported, any refuted, else "
      "inconclusive); the label is then the rule's", "as its label"),
     ("Declared in files", "origin / derived_from", "who proposed it, and the verdict, experiment, source or question that prompted it; "
