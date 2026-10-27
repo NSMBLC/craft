@@ -509,3 +509,25 @@ def test_sources_carry_over_from_an_archived_investigation(programme: Craft):
     r = c("lit", "carry", inv, "--key", "kim2024", "--inv", "inv-003")
     assert "Carried 0" in r.out and "not found with the recorded hash" in r.out
     assert c("lit", "carry", inv, "--key", "nope", "--inv", "inv-003").code != 0
+
+
+@pytest.mark.checkpoint("9.21")
+def test_closure_and_literature_are_validated(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    c.write(f"investigations/{inv}/literature/stray.pdf", "downloaded, never read")
+    r = c("validate", "literature", "--inv", inv)
+    assert "literature/stray.pdf" in r.out and "no source records" in r.out
+    plan(c, inv, "exp1", "description: d\ntests: [H1:C1]")
+    assert "experiments/exp1/plan.md" in c("validate", "experiments", "--inv", inv).out
+    assert "experiments/exp1/plan.md" in c("validate", "plans", "--inv", inv).out  # the old name still works
+    c.write(f"investigations/{inv}/closure.md", "---\nanomalies:\n  - latency spiked on one node\nnotes: ''\n---\n")
+    r = c("validate", "closure", "--inv", inv)
+    assert r.code != 0 and "anomalies[1]" in r.out and "not plain text" in r.out
+    out = typed(c, f"/craft-close --inv {inv}")
+    assert "Closed." not in out and "would lose anomalies" in out, out
+    c.write(f"investigations/{inv}/closure.md",
+            "---\nanomalies:\n  - question: why did latency spike on one node?\n    context: exp1 logs\nnotes: ''\n---\n")
+    assert c("validate", "closure", "--inv", inv).code == 0
+    close(c)
+    assert any("latency spike" in q["question"] for q in memory(c, "open"))

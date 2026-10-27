@@ -9,6 +9,7 @@ exploratory experiments that ran -> exploratory work. Dropped hypotheses go nowh
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from .. import memory as mem
 from .. import registry
@@ -167,3 +168,47 @@ def _tags(h: "registry.HypView | None", post_hoc: bool) -> dict:
         tags["hypothesis_outcome"] = h.status
         tags["outcome_basis"] = h.label_basis()
     return tags
+
+
+CLOSURE_FIELDS = {"anomalies", "notes"}
+ANOMALY_FIELDS = {"question", "context"}
+
+
+def validate_closure(path: Path, state: InvestigationState):
+    """closure.md: each anomaly is {question, context} and becomes an open question at closure. A
+    malformed one would be lost when the investigation is archived, so it is an error."""
+    from .common import Validation, nonempty
+
+    v = Validation("closure.md")
+    if not path.exists():
+        v.warn("closure.md", "not written yet; closing works without it, but anomalies seen during the "
+                             "investigation reach memory only through it")
+        return v
+    fm, _ = read_doc(path)
+    for k in fm:
+        if k not in CLOSURE_FIELDS:
+            v.warn(k, "is not a closure field CRAFT reads (anomalies, notes); it would not reach memory")
+    anomalies = fm.get("anomalies")
+    if anomalies is None:
+        v.warn("anomalies", "missing; write `anomalies: []` when there were none")
+    elif not isinstance(anomalies, list):
+        v.error("anomalies", "must be a list of {question, context}")
+    else:
+        for i, a in enumerate(anomalies, 1):
+            if not isinstance(a, dict):
+                v.error(f"anomalies[{i}]", "must be {question: ..., context: ...}, not plain text; as written it "
+                                           "would not become an open question")
+                continue
+            if not nonempty(a.get("question")):
+                v.error(f"anomalies[{i}].question", "missing: the open question this anomaly leaves")
+            if not nonempty(a.get("context")):
+                v.warn(f"anomalies[{i}].context", "empty: say where it was seen (an experiment, a file, a verdict)")
+            for k in a:
+                if k not in ANOMALY_FIELDS:
+                    v.warn(f"anomalies[{i}].{k}", "is not an anomaly field CRAFT reads (question, context)")
+    if fm.get("notes") is not None and not isinstance(fm.get("notes"), str):
+        v.error("notes", "must be text")
+    if state.kill.triggered and not nonempty(fm.get("notes")):
+        v.warn("notes", f"kill criterion {state.kill.criterion} was met: say in a sentence what that means for the question")
+    return v
+
