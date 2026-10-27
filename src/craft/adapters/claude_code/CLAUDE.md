@@ -47,7 +47,8 @@ follow them, and fix everything a refusal lists before retrying.
    then `craft review` again. Two rounds at most; after that only a genuine change starts a new cycle.
    A clean pass registers the hypothesis.
 5. **Experiments.** Write the plan before running. Record input data with how it was built
-   (`craft data add <path> --id <id> --derivation`, ideally before review) and the environment
+   (`craft data add <path> --id <id> --derivation`, ideally before review; generated inputs with
+   `--generated --seeds`, fetched ones by the runner with `--fetched`) and the environment
    (`craft lock <lock file>`) before the first verdict; a new package is `craft propose package`,
    then stop until the researcher decides. Check evidence with `--dry-run` before an expensive run,
    then `craft verdict <exp> --criterion H1:C1 --evidence <file>` (kill criteria: `--criterion K1`).

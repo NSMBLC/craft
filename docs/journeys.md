@@ -271,7 +271,10 @@ design, since data choices are analysis choices. ✓9.19 A kill criterion that s
 ("under both encodings, …") names the verdicts it is judged from; CRAFT compares the value each one
 recorded, writes the kill check with the hash of every verdict it used, and no one builds a summary file
 by hand. A verdict a kill check was judged from is not filed again, and `craft verify` reports a cited
-verdict that no longer matches. ✓9.22
+verdict that no longer matches. ✓9.22 Inputs generated from seeds are recorded by what determines them,
+the generator code, the seeds and the environment, and evidence may use only the recorded seeds; an input
+the runner fetches just before use is recorded by the run right after fetching, and evidence produced
+before that record cannot cite it. ✓9.23
 
 Starting a follow-on investigation, she brings the sources of the earlier one over in one command:
 each keeps its record and full-text hash and says where it came from, a full text whose contents no
@@ -291,7 +294,7 @@ until it is a question with its context. ✓9.21
 | 3. Late confounds | 3.1 (rival explanations), 4.2 |
 | 4. Over-claiming / standard decay | 2.4, 4.7, 6.2, 6.3, 8.4, 9.3, 9.6, 9.7, 9.19 |
 | 5. Evaporating negatives and ideas | 1.1, 1.2, 7.1, 7.3, 8.3, 9.1, 9.2, 9.18, 9.20, 9.21 |
-| 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17 |
+| 6. Reproducibility | 6.1, 6.4, 7.2, 8.7, 9.8, 9.9, 9.16, 9.17, 9.23 |
 | 7. Attention allocation | 1.5, 1.6, 6.5, 7.4, 8.6, 9.10, 9.11, 9.12, 9.14, 9.15 |
 | 8. Audit trail | 6.2, 7.1, 7.2, 8.2, 8.7, 9.3, 9.4, 9.22 |
 | 9. Late scrutiny | 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3 |

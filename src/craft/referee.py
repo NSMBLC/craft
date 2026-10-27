@@ -57,7 +57,10 @@ def data_section(inv: InvestigationPaths) -> str:
     if not data:
         lines.append("(none recorded yet; how the inputs are built is stated only in the documents above, if at all)")
     for did, rec in data.items():
-        lines.append(f"- {did}: {rec['path']}" + (f" — {rec['note']}" if rec.get("note") else ""))
+        from .data import described
+
+        lines.append(f"- {did}: {rec['path']}" + (f" — {rec['note']}" if rec.get("note") else "")
+                     + (f" [{described(rec)}]" if described(rec) else ""))
         lines.append(f"  derivation: {rec.get('derivation') or '(not described)'}")
     return "\n".join(lines) + "\n"
 
