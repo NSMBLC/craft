@@ -21,10 +21,11 @@ literature and questions are added, parked, dropped and revisited as results arr
 Plans are files you write: `problem.md`, `hypotheses/H<n>.md` (an idea is just a `claim:` line),
 `experiments/<name>/plan.md` (`tests: [H1:C1]` or `exploratory: true`), `questions.md` (one bullet
 per question), `literature/`. Start each from its template or from what `craft validate` asks for; give
-every hypothesis and plan `origin:` and `derived_from:` (what prompted it). Statuses are derived: read
-them on the board (`craft status`). What each word means, and what happens to it at closure:
-`craft glossary`. Field-level detail comes from the validator and the command messages when it matters:
-follow them, and fix everything a refusal lists before retrying.
+every hypothesis and plan `origin:` and `derived_from:` (what prompted it). Outside its own
+investigation a hypothesis is `<inv>/H<n>`; renumber an unreviewed one with `craft renumber H3 H4`.
+Statuses are derived: read them on the board (`craft status`). What each word means, and what happens
+to it at closure: `craft glossary`. Field-level detail comes from the validator and the command
+messages when it matters: follow them, and fix everything a refusal lists before retrying.
 
 ## The workflow
 1. **Framing.** Run `craft recall "<the researcher's words>"` before drafting anything. If it returns a

@@ -693,10 +693,10 @@ def test_28_close_routes_mixed_outcome_and_open_threads(arc: Craft):
     assert by_crit["H1:C1"]["post_hoc"] is True and by_crit["H1:C1"]["lineage"]["threshold"] == 1.5
     qs = [q["question"] for q in open_q]
     assert any("latency improve" in q for q in qs) and any(q.startswith("killed by K1") for q in qs)
-    assert any(q.startswith("untested idea H3") for q in qs)                  # parked idea
-    assert any(q.startswith("untested H4") for q in qs)                       # registered, never judged
+    assert any(q.startswith("untested idea inv-001/H3") for q in qs)                  # parked idea
+    assert any(q.startswith("untested inv-001/H4") for q in qs)                       # registered, never judged
     assert any("tokenizer" in q for q in qs)                                  # questions.md
-    assert any(q.startswith("untested H2") and "C2" in q for q in qs)        # registered, partly judged
+    assert any(q.startswith("untested inv-001/H2") and "C2" in q for q in qs)        # registered, partly judged
     assert not (arc.root / "investigations" / INV).exists()
     arch = arc.root / "archive" / INV
     assert (arch / "review" / "H1" / "registered.md").exists() and (arch / "experiments" / "exp1" / "verdict-H1-C1.md").exists()

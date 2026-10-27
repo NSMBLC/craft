@@ -152,10 +152,33 @@ def decisions_text(prog: Programme, inv_id: str | None = None) -> str:
 
 
 def explain_text(prog: Programme, entry_id: str) -> tuple[str, int]:
-    """Walk claim -> criterion -> observed -> files. Returns (text, number of broken links)."""
-    from . import memory as mem
-    from .util import sha256_file
+    """Walk claim -> criterion -> observed -> files. Returns (text, number of broken links).
 
+    `entry_id` is a memory entry id, or a hypothesis (`inv-001/H1`): then every entry about it is explained."""
+    from . import memory as mem
+    from .registry import HYP_REF_RE
+    from .util import read_jsonl, sha256_file
+
+    m = HYP_REF_RE.match(entry_id.strip())
+    if m and not m.group("crit"):
+        inv_id, hid = m.group("inv"), m.group("hid")
+        about = [r for f in mem.MEMORY_FILES.values() for r in read_jsonl(prog.memory_dir / f)
+                 if r.get("hypothesis") == hid and (inv_id is None or r.get("investigation") == inv_id)]
+        invs = sorted({str(r.get("investigation")) for r in about})
+        if inv_id is None and len(invs) > 1:
+            raise CraftError(f"{hid} names a hypothesis in several investigations ({', '.join(invs)}); write it as "
+                             f"<investigation>/{hid}, e.g. {invs[0]}/{hid}")
+        if not about:
+            where = ("an open investigation; it reaches memory when that investigation closes "
+                     f"(`craft status --inv {inv_id}`)" if inv_id and inv_id in prog.list_investigations()
+                     else "no memory entry")
+            raise CraftError(f"{entry_id}: {where}")
+        parts, broken = [], 0
+        for r in about:
+            text, b = explain_text(prog, r["id"])
+            parts.append(text)
+            broken += b
+        return "\n\n".join(parts), broken
     rec = mem.find_entry(prog, entry_id)
     if rec is None:
         raise CraftError(f"no memory entry {entry_id}")

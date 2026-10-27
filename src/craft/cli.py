@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import re
 import shutil
 import sys
 from importlib import resources
@@ -55,6 +56,16 @@ def _ctx(inv_id: Optional[str]) -> tuple[Programme, InvestigationPaths, Investig
     prog = _prog()
     inv, state = load_context(prog, inv_id)
     return prog, inv, state
+
+
+def _local_ref(ref: str, inv_id: Optional[str]) -> tuple[str, Optional[str]]:
+    """`inv-001/H1:C1` -> (`H1:C1`, `inv-001`): a programme-wide reference also names the investigation."""
+    ref_inv, local = registry.split_ref(ref)
+    if ref_inv is None:
+        return ref, inv_id
+    if inv_id and inv_id != ref_inv:
+        raise CraftError(f"{ref} is a hypothesis of {ref_inv}, but --inv names {inv_id}")
+    return local, ref_inv
 
 
 def _template(name: str) -> str:
@@ -324,6 +335,7 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
     A parked idea (a claim only) is valid as an idea; `--full` lists what a draft needs. `all` lists
     incomplete drafts without failing; `hypotheses` or an id fails on them.
     """
+    artifact, inv_id = _local_ref(artifact, inv_id)
     prog, inv, state = _ctx(inv_id)
     results, notes, ideas = [], [], []
     hyp_ids = inv.hypothesis_ids()
@@ -375,6 +387,11 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
             echo(f"  [warning] {field_}: {msg}")
     for r in notes:
         echo(f"{r.artifact}: incomplete draft (`craft validate {Path(r.artifact).stem}` for details)")
+    linked = [inv.hypothesis(h) for h in hyp_ids] + [inv.experiment_plan(e) for e in inv.experiment_names()]
+    for doc in linked if artifact in ("all", "hypotheses", "hypothesis", "experiments") or artifact in hyp_ids else []:
+        if doc.exists() and (artifact not in hyp_ids or doc == inv.hypothesis(artifact)):
+            for ref in registry.unresolved_refs(prog, inv, read_doc(doc)[0].get("derived_from") or ""):
+                echo(f"  [warning] {inv.rel(doc)}: derived_from names {ref}, which is no hypothesis in the programme")
     if artifact == "all":
         docs = [inv.problem, inv.lit_map] + [inv.hypothesis(h) for h in hyp_ids]
         for doc in docs:
@@ -384,6 +401,61 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
                     ok = False
     if not ok:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def renumber(old: str = typer.Argument(..., help="The unregistered hypothesis, e.g. H3."),
+             new: str = typer.Argument(..., help="Its new number, e.g. H4."),
+             inv_id: Optional[str] = INV_OPT) -> None:
+    """Renumber an unregistered hypothesis and every reference to it (plans, other hypotheses, questions,
+    closure, and other investigations' links). A reviewed or registered hypothesis keeps its identity."""
+    old, inv_id = _local_ref(old, inv_id)
+    new, inv_id = _local_ref(new, inv_id)
+    prog, inv, state = _ctx(inv_id)
+    state.require_untainted("renumber a hypothesis")
+    state.require_phase(Phase.FRAMING, Phase.OPEN, action="renumber a hypothesis")
+    for h in (old, new):
+        if not re.fullmatch(r"H\d+", h):
+            raise CraftError(f"'{h}' is not a hypothesis number (H<n>)")
+    if not inv.hypothesis(old).exists():
+        raise CraftError(f"no hypotheses/{old}.md in {state.id} ({', '.join(inv.hypothesis_ids()) or 'none'})")
+    rec = state.hypotheses.get(old)
+    if rec and (rec.registered_sha256 or rec.rounds or rec.cycles):
+        raise CraftError(f"{state.id}/{old} has been {'registered' if rec.registered_sha256 else 'reviewed'}: its review "
+                         "records name it, so it keeps its identity. A new idea derived from it is a new hypothesis "
+                         f"with `derived_from: {state.id}/{old}`.")
+    if inv.hypothesis(new).exists() or new in state.hypotheses:
+        raise CraftError(f"{state.id}/{new} already exists; pick a free number")
+    local = re.compile(rf"(?<![\w/.:-]){old}(?![\w/-])|(?<![\w.-]){re.escape(state.id)}/{old}(?![\w/-])")
+    qualified = re.compile(rf"(?<![\w.-]){re.escape(state.id)}/{old}(?![\w/-])")
+    if inv.problem.exists() and local.search(inv.problem.read_text(encoding="utf-8")):
+        raise CraftError(f"problem.md names {old} (a kill criterion judged from it?); the approved problem statement "
+                         f"is not rewritten, so {old} keeps its number.")
+    inv.hypothesis(old).rename(inv.hypothesis(new))
+    if rec is not None:
+        state.hypotheses[new] = state.hypotheses.pop(old)
+    changed = [f"hypotheses/{old}.md -> hypotheses/{new}.md"]
+
+    def rewrite(path: Path, pattern: re.Pattern, shown: str) -> None:
+        if not path.is_file():
+            return
+        text = path.read_text(encoding="utf-8")
+        out = pattern.sub(lambda m: f"{state.id}/{new}" if "/" in m.group(0) else new, text)
+        if out != text:
+            path.write_text(out, encoding="utf-8")
+            changed.append(shown)
+
+    own = [inv.hypothesis(h) for h in inv.hypothesis_ids()] + [inv.experiment_plan(e) for e in inv.experiment_names()]
+    for path in own + [inv.questions, inv.closure, inv.lit_map]:
+        rewrite(path, local, inv.rel(path))
+    for other in prog.list_investigations():
+        if other == state.id:
+            continue
+        o = InvestigationPaths(prog.investigation_dir(other))
+        for path in [o.hypothesis(h) for h in o.hypothesis_ids()] + [o.experiment_plan(e) for e in o.experiment_names()] + [o.questions, o.closure]:
+            rewrite(path, qualified, f"{other}/{o.rel(path)}")
+    state.save(inv.root)
+    echo(f"Renumbered {state.id}/{old} to {state.id}/{new}. Changed: " + "; ".join(changed) + ".")
 
 
 @app.command()
@@ -905,6 +977,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
                                          "synthetic data) would be accepted for this criterion. Records nothing; shows no label."),
             inv_id: Optional[str] = INV_OPT) -> None:
     """Compute a verdict for one criterion from an evidence file, against the registered threshold."""
+    criterion, inv_id = _local_ref(criterion, inv_id)
     prog, inv, state = _ctx(inv_id)
     pfm, _ = read_doc(inv.problem)
     kills = {k["id"]: k for k in kill_criteria(pfm)}
@@ -1064,6 +1137,7 @@ def limitation(experiment: str, criterion: str = typer.Option(..., "--criterion"
                inv_id: Optional[str] = INV_OPT) -> None:
     """Attach a limitation found after a verdict. The verdict and its label never change; the limitation
     travels with it to the board, closure, memory, recall and explain."""
+    criterion, inv_id = _local_ref(criterion, inv_id)
     prog, inv, state = _ctx(inv_id)
     state.require_untainted("record a limitation")
     state.require_phase(Phase.OPEN, Phase.CLOSING, action="record a limitation")
@@ -1336,7 +1410,7 @@ def _kill_sources(inv: InvestigationPaths, state: InvestigationState, k: dict) -
     recorded yet. `H1:C1` must name exactly one verdict; `exp-a:H1:C1` picks one experiment's."""
     cited, missing = [], []
     for ref in k["from"]:
-        parts = str(ref).split(":")
+        parts = str(ref).removeprefix(f"{state.id}/").split(":")
         exp, key = (parts[0], ":".join(parts[1:])) if len(parts) == 3 else (None, str(ref))
         hits = [v for v in state.verdicts if v.criterion == key and (exp is None or v.experiment == exp)]
         if not hits:
@@ -1485,7 +1559,7 @@ def status(inv_id: Optional[str] = INV_OPT, as_json: bool = typer.Option(False, 
 
 
 @app.command()
-def explain(entry_id: str = typer.Argument(..., help="Memory entry id, e.g. F-0001 or R-0002")) -> None:
+def explain(entry_id: str = typer.Argument(..., help="Memory entry id, e.g. F-0001 or R-0002, or a hypothesis, e.g. inv-001/H1")) -> None:
     """Walk the chain claim -> criterion -> observed -> files, verifying every link resolves."""
     text, broken = explain_text(_prog(), entry_id)
     echo(text)

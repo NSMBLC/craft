@@ -30,6 +30,10 @@ def validate_plan(inv: InvestigationPaths, state: InvestigationState, name: str)
         v.warn("tests", "tests no criterion: its evidence can only check kill criteria")
     for key in view.tests:
         hid, _, cname = key.partition(":")
+        if "/" in hid:
+            v.error("tests", f"{key}: a hypothesis of another investigation; an experiment tests its own "
+                             f"investigation's hypotheses ({state.id}/H<n>, or H<n>)")
+            continue
         hv = registry.hyp_view(inv, state, hid)
         if not hv.exists:
             v.error("tests", f"{key}: no hypotheses/{hid}.md")
