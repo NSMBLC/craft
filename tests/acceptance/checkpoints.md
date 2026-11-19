@@ -52,7 +52,7 @@
 | 9.6 | test_hypothesis_label_states_its_basis |
 | 9.7 | test_deterministic_metric_is_declared_at_registration |
 | 9.8 | test_input_data_is_recorded_and_a_change_is_held |
-| 9.9 | test_a_project_with_two_package_managers_records_both_locks, test_environment_record_only_describes_an_environment |
+| 9.9 | test_a_project_with_two_package_managers_records_both_locks, test_a_single_lock_file_can_be_replaced_by_another_tool, test_an_approved_package_stays_in_its_own_lock_file, test_environment_record_only_describes_an_environment |
 | 9.10 | test_a_bare_decision_reaches_the_one_waiting_investigation |
 | 9.11 | test_a_parked_idea_validates_as_an_idea |
 | 9.12 | test_memory_is_not_repeated_within_a_session |
