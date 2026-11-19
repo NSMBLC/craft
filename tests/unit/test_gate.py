@@ -120,6 +120,7 @@ def test_bash_screen_matches_decision_subcommands_not_words(tmp_path):
                 "craft 'approve' problem", "cd x; craft reject --note y"):
         assert not decide_bash(prog, cmd, tmp_path).allow, cmd
     for cmd in ('craft propose package scipy --reason "the old build would reject float128"',
+                'craft propose remove regex --reason "no longer used"',
                 'craft limitation exp1 --criterion H1:C1 --text "close to the threshold; correct only in simulation" --source x',
                 "grep -n approve docs/journeys.md"):
         assert decide_bash(prog, cmd, tmp_path).allow, cmd

@@ -99,7 +99,7 @@ def env_approve(prog: Programme, inv_id: str | None, lock: list[Path] | None, co
     prop = envlock.pending(state)
     if not prop:
         raise CraftError("no pending environment proposal")
-    preview = f"Proposal for {state.id}: add '{prop['package']}' — {prop['reason']}"
+    preview = f"Proposal for {state.id}: {envlock.describe(prop)} — {prop['reason']}"
     if not confirm(preview + "\nApprove this environment change?"):
         raise Declined("Not approved.")
     v = envlock.approve(inv, state, lock)
@@ -126,7 +126,7 @@ def close(prog: Programme, inv_id: str | None, note: str, confirm: Confirm, via:
     state.require_untainted("close")
     state.require_phase(Phase.OPEN, Phase.CLOSING, action="close")
     if state.env.pending_proposal:
-        raise CraftError("a package proposal is pending; `/craft-approve` or `/craft-reject --note ...` it first")
+        raise CraftError("an environment proposal is pending; `/craft-approve` or `/craft-reject --note ...` it first")
     from .artifacts.closure import validate_closure
 
     cv = validate_closure(inv.closure, state)

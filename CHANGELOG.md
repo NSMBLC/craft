@@ -5,6 +5,13 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
+## Unreleased
+
+- `craft propose remove <package> --reason ...` proposes removing a package from the environment, and
+  `craft propose remove <lock file>` a whole lock file recorded with others; verdicts halt until the
+  researcher approves (with the lock files resolved without it) or rejects, and approved removals are no
+  longer required in later locks (#49). `/craft-help` shows `/craft-approve --lock`.
+
 ## 0.2.1 — 2026-11-18
 
 Fixes to the lock-file checks added in 0.2.0.

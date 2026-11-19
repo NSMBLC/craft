@@ -18,6 +18,7 @@
       "Bash(craft literature:*)",
       "Bash(craft lock:*)",
       "Bash(craft propose package:*)",
+      "Bash(craft propose remove:*)",
       "Bash(craft decisions:*)"
     ],
     "deny": [

@@ -150,12 +150,12 @@ def decide_investigation_write(state: InvestigationState, inner: PurePosixPath,
 
     if name == "env.lock":
         return Decision.deny(
-            "env.lock changes only through `craft propose package` (agent) followed by "
+            "env.lock changes only through `craft propose package` or `craft propose remove` (agent) followed by "
             "`/craft-approve` (researcher).",
             "6.1",
         )
     if name == "env.proposal.yaml":
-        return Decision.deny("package proposals are written with `craft propose package`.")
+        return Decision.deny("environment proposals are written with `craft propose package` or `craft propose remove`.")
 
     if inner.parts and inner.parts[0] == "experiments" and len(inner.parts) >= 3:
         exp = inner.parts[1]
