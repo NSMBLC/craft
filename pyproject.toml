@@ -1,6 +1,6 @@
 [project]
 name = "craft-research"
-version = "0.1.0"
+version = "0.2.0"
 description = "CRAFT: disciplined computational research inside a GenAI session"
 readme = "README.md"
 requires-python = ">=3.12"

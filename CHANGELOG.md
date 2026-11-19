@@ -5,7 +5,9 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
-## Unreleased
+## 0.2.0 — 2026-11-18
+
+How criteria are judged, file pointers in `derived_from`, and environments recorded from several lock files.
 
 - A criterion can declare what it is judged on (`judged_on: interval | point | upper_bound | lower_bound`) and,
   when the evidence supplies its own interval, how that interval is computed (`interval_method`, which the
