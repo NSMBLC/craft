@@ -589,7 +589,7 @@ def board_text(inv: InvestigationPaths, state: InvestigationState, typed=None) -
         if h.post_hoc:
             flags.append("criteria changed after registration (post-hoc)")
         elif h.changed_since_registration:
-            flags.append("edited since registration")
+            flags.append(f"edited since registration (`craft review --hyp {h.id}` re-reviews it and restarts its cycle)")
         src = f"{h.origin}" + (f" <- {h.derived_from}" if h.derived_from else "")
         lines.append(f"      {h.id:<6} {status:<14} {_short(h.claim)}")
         detail = "; ".join(x for x in [crits, *flags, f"origin {src}"] if x)

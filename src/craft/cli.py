@@ -678,7 +678,16 @@ def review_request(hyp: list[str] = typer.Option([], "--hyp"), inv_id: Optional[
     due, skipped = [], []
     for hid in targets:
         try:
-            due.append((hid, _review_step(prog, inv, state, hid)))
+            step = _review_step(prog, inv, state, hid)
+            if step == "new-cycle" and state.hyp(hid).registered_sha256:
+                k = len(state.hyp(hid).cycles) + 2
+                if not hyp:  # an edited registered hypothesis is re-reviewed only when named
+                    skipped.append(f"{hid}: registered, and edited since; `craft review --hyp {hid}` re-reviews it, "
+                                   f"which takes it out of registered and starts review cycle {k}")
+                    continue
+                echo(f"Re-reviewing {hid}: edited since registration. It leaves registered now and starts review "
+                     f"cycle {k}; a clean pass registers the edited version.")
+            due.append((hid, step))
         except _NotDue as e:
             if hyp:
                 raise CraftError(str(e)) from None
