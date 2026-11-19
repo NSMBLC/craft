@@ -50,8 +50,9 @@ messages when it matters: follow them, and fix everything a refusal lists before
 5. **Experiments.** Write the plan before running. Record input data with how it was built
    (`craft data add <path> --id <id> --derivation`, ideally before review; generated inputs with
    `--generated --seeds`, fetched ones by the runner with `--fetched`) and the environment
-   (`craft lock <lock file>`) before the first verdict; a new package is `craft propose package`,
-   then stop until the researcher decides. Check evidence with `--dry-run` before an expensive run,
+   (`craft lock <lock file>...`, every package manager's lock together, e.g. `craft lock uv.lock
+   Cargo.lock`) before the first verdict; a new package is `craft propose package`, then stop until
+   the researcher decides. Check evidence with `--dry-run` before an expensive run,
    then `craft verdict <exp> --criterion H1:C1 --evidence <file>` (kill criteria: `--criterion K1`).
    A met kill criterion halts new work: judge only the evidence its message lists, then stop and report.
 6. **After every verdict or new source, suggest** up to three follow-ups (a question, hypothesis or

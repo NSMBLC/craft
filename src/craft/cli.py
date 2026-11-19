@@ -310,7 +310,7 @@ def new(inv_id: str = typer.Argument(..., metavar="ID"),
         topic: str = typer.Option(..., "--topic", help="The question in one line (used for recall)."),
         acknowledge: list[str] = typer.Option([], "--acknowledge", help="Memory entry id being acknowledged (repeatable)."),
         justification: list[str] = typer.Option([], "--justification", help="Why the acknowledged entry does not settle this (one per --acknowledge)."),
-        lock: Optional[Path] = typer.Option(None, "--lock", help="Environment lock file to record as v1 (e.g. uv.lock).")) -> None:
+        lock: list[Path] = typer.Option([], "--lock", help="Environment lock file to record as v1 (e.g. uv.lock); repeat for each package manager (--lock uv.lock --lock Cargo.lock).")) -> None:
     """Create an investigation. Refuses while a refuted related claim is unacknowledged."""
     prog = _prog()
     if prog.investigation_dir(inv_id).exists() or (prog.archive_dir / inv_id).exists():
@@ -577,7 +577,7 @@ def lit_closest(key: str, delta: str = typer.Option(..., "--delta", help="One pa
 @app.command()
 def approve(what: Optional[str] = typer.Argument(None, help="problem | package (default: whatever is pending)"),
             inv_id: Optional[str] = INV_OPT, note: str = typer.Option("", "--note"),
-            lock: Optional[Path] = typer.Option(None, "--lock", help="(package) new lock file; default appends the package line.")) -> None:
+            lock: list[Path] = typer.Option([], "--lock", help="(package) new lock file, repeatable for each package manager; default appends the package line.")) -> None:
     """RESEARCHER ONLY. Approve what the agent is waiting on: the problem statement or a package proposal."""
     require_human("approve")
     if what not in (None, "problem", "package"):
@@ -895,13 +895,13 @@ def review_show(inv_id: Optional[str] = INV_OPT) -> None:
 # ------------------------------------------------------------------ env
 
 @app.command()
-def lock(file: Path = typer.Argument(..., help="Lock file to record (uv.lock, requirements.txt, environment.yml)."),
+def lock(files: list[Path] = typer.Argument(..., help="Lock file(s) to record (uv.lock, requirements.txt, environment.yml); give every package manager's lock together, e.g. uv.lock Cargo.lock."),
          inv_id: Optional[str] = INV_OPT) -> None:
     """Record the resolved environment lock before the first verdict (a new version; approved packages must be in it)."""
     prog, inv, state = _ctx(inv_id)
     if state.verdicts:
         raise CraftError("verdicts have been filed against the current environment; changes go through `craft propose package`")
-    envlock.init_lock(inv, state, file)
+    envlock.init_lock(inv, state, files)
     state.save(inv.root)
     echo(f"env.lock v{state.env.version} recorded (sha256 {state.env.lock_sha256[:12]}).")
 
