@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from . import envlock
 from .artifacts.hypothesis import criteria_table, is_idea, validate_hypothesis
 from .paths import InvestigationPaths, natural_key
 from .state import HypothesisRecord, InvestigationState, Phase
@@ -482,7 +483,7 @@ def next_action(inv: InvestigationPaths, state: InvestigationState) -> tuple[str
         return ("nobody", "", "closed and archived")
     if state.env.pending_proposal:
         return ("researcher", "/craft-approve",
-                f"the agent proposed adding '{state.env.pending_proposal['package']}' to the locked environment; "
+                f"the agent proposed {envlock.describe(state.env.pending_proposal)} in the locked environment; "
                 "verdicts are halted until approved (or `/craft-reject --note`)")
     if problem_changed(inv, state):
         return ("researcher", "/craft-approve",

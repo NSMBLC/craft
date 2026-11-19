@@ -118,8 +118,10 @@ def status_text(prog: Programme, inv_id: str | None = None) -> str:
 
 RESEARCHER_HELP = """Your commands (type them as messages; CRAFT executes them before the agent sees them):
   /craft-approve                 approve what the agent is waiting on: the one-page problem
-                                 statement (or a changed version of it), or a proposed package
-  /craft-reject --note "why"     refuse a proposed package; work continues with the current environment
+                                 statement (or a changed version of it), or a proposed environment change
+  /craft-approve --lock <file>   approve a package to add or remove with the resolved lock file(s);
+                                 repeat --lock for each package manager (uv.lock, Cargo.lock)
+  /craft-reject --note "why"     refuse a proposed change; work continues with the current environment
   /craft-close                   close the investigation whenever you choose: outcomes go to memory,
                                  untested hypotheses, ideas and questions to open questions, files to archive
   /craft-resolve --note "..."    clear an integrity hold after you have reviewed what happened

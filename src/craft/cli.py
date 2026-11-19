@@ -900,23 +900,31 @@ def lock(files: list[Path] = typer.Argument(..., help="Lock file(s) to record (u
     """Record the resolved environment lock before the first verdict (a new version; approved packages must be in it)."""
     prog, inv, state = _ctx(inv_id)
     if state.verdicts:
-        raise CraftError("verdicts have been filed against the current environment; changes go through `craft propose package`")
+        raise CraftError("verdicts have been filed against the current environment; changes go through "
+                         "`craft propose package` (add) or `craft propose remove` (remove)")
     envlock.init_lock(inv, state, files)
     state.save(inv.root)
     echo(f"env.lock v{state.env.version} recorded (sha256 {state.env.lock_sha256[:12]}).")
 
 
 @app.command()
-def propose(what: str = typer.Argument(..., help="package"), name: str = typer.Argument(..., help="Package (and version) to add."),
+def propose(what: str = typer.Argument(..., help="package (add one) | remove (a package or a recorded lock file)"),
+            name: str = typer.Argument(..., help="Package (and version) to add, or the package or lock file to remove."),
             reason: str = typer.Option(..., "--reason"), inv_id: Optional[str] = INV_OPT) -> None:
-    """Propose an addition to the locked environment; execution halts until the researcher approves."""
-    if what != "package":
-        raise CraftError("only `craft propose package <name> --reason ...` exists")
+    """Propose adding a package to the locked environment, or removing one (or a whole lock file); execution halts until the researcher decides."""
+    if what not in ("package", "remove"):
+        raise CraftError("`craft propose package <name> --reason ...` adds a package; "
+                         "`craft propose remove <package or lock file> --reason ...` removes one")
     prog, inv, state = _ctx(inv_id)
-    envlock.propose(inv, state, name, reason)
+    prop = envlock.propose(inv, state, name, reason, action="add" if what == "package" else "remove")
     state.save(inv.root)
     approve_cmd = decision_cmd(prog, state.id, "/craft-approve")
-    echo(f"Proposed adding '{name}' (env v{state.env.version} -> v{state.env.version + 1}). "
+    if prop["action"] != "add":
+        kept = [f for f in envlock.recorded_files(state) if f != prop["package"]]
+        approve_cmd += "".join(f" --lock {f}" for f in kept) if kept else ""
+        echo(f"Resolve the lock files without {prop['package']} first; the researcher's approval records them."
+             if prop["action"] == "remove" else f"The approval records the remaining lock files ({', '.join(kept)}).")
+    echo(f"Proposed {envlock.describe(prop)} (env v{state.env.version} -> v{state.env.version + 1}). "
          f"Verdicts are halted: no verdicts can be filed until the researcher types `{approve_cmd}` "
          f"(or `{decision_cmd(prog, state.id, '/craft-reject')} --note ...`). End your message with that command on its own line and wait.")
 
@@ -1038,7 +1046,7 @@ def verdict(experiment: str, criterion: str = typer.Option(..., "--criterion", h
     closing = state.phase == Phase.CLOSING
     state.require_phase(Phase.OPEN, Phase.CLOSING, action="file a verdict")
     if state.env.pending_proposal:
-        raise CraftError(f"verdicts are halted: package proposal '{state.env.pending_proposal['package']}' awaits the researcher's `/craft-approve` (or `/craft-reject --note ...`).")
+        raise CraftError(f"verdicts are halted: the proposal {envlock.describe(state.env.pending_proposal)} awaits the researcher's `/craft-approve` (or `/craft-reject --note ...`).")
     if ":" not in criterion and criterion in kills:
         if closing:
             raise CraftError(f"investigation {state.id} is closing (kill criterion {state.kill.criterion} was met); "

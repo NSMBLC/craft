@@ -302,6 +302,74 @@ def test_an_approved_package_stays_in_its_own_lock_file(programme: Craft):
 
 
 @pytest.mark.checkpoint("9.9")
+def test_an_approved_package_is_removed_through_the_researcher(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n[[package]]\nname = "regex"\n')
+    c("propose", "package", "regex", "--reason", "tokenising", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    assert "craft propose remove" in c("lock", str(c.write("uv.lock", 'version = 1\n')), "--inv", inv).err
+    r = c("propose", "remove", "pandas", "--reason", "unused", "--inv", inv)
+    assert r.code != 0 and "nothing to remove" in r.err
+    out = c("propose", "remove", "regex", "--reason", "tokeniser replaced", "--inv", inv).out
+    assert "removing 'regex'" in out and "/craft-approve" in out
+    assert "removing 'regex'" in c("status").out
+    uv.write_text('version = 1\n[[package]]\nname = "numpy"\n[[package]]\nname = "regex"\n')
+    assert "still contains regex" in typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    uv.write_text('version = 1\n[[package]]\nname = "numpy"\n')
+    assert "v3" in typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    assert "env.lock v4" in c("lock", str(uv), "--inv", inv).out  # regex is no longer required
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())
+    assert any(h.get("action") == "remove" and h["released"] == ["regex"] for h in st["env"]["history"])
+
+
+@pytest.mark.checkpoint("9.9")
+def test_a_package_is_removed_after_verdicts(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n[[package]]\nname = "regex"\n')
+    c("propose", "package", "regex", "--reason", "tokenising", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    plan(c, inv, "exp1", "description: d\ntests: [H1:C1]")
+    e = ev(c, f"investigations/{inv}/experiments/exp1/evidence/c1.json", "accuracy_gain", [1.9, 2.0, 2.1, 2.0, 1.95])
+    assert "SUPPORTED" in c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", e, "--inv", inv).out
+    c("propose", "remove", "regex", "--reason", "tokeniser replaced", "--inv", inv)
+    assert c("verdict", "exp1", "--criterion", "H1:C1", "--evidence", e, "--inv", inv).code != 0  # halted
+    uv.write_text('version = 1\n[[package]]\nname = "numpy"\n')
+    assert "v3" in typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    assert c("verify").code == 0
+
+
+@pytest.mark.checkpoint("9.9")
+def test_a_package_approved_without_a_lock_is_removed_without_one(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    c("propose", "package", "scipy", "--reason", "shrinkage", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv}")
+    c("propose", "remove", "scipy", "--reason", "not needed", "--inv", inv)
+    assert "v3" in typed(c, f"/craft-approve --inv {inv}")
+    assert "scipy" not in (c.root / "investigations" / inv / "env.lock").read_text()
+
+
+@pytest.mark.checkpoint("9.9")
+def test_a_whole_lock_file_is_removed_through_the_researcher(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n')
+    cargo = c.write("rust/Cargo.lock", 'version = 3\n[[package]]\nname = "serde"\n')
+    c("propose", "package", "serde", "--reason", "parsing", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")
+    assert "leaves out Cargo.lock" in c("lock", str(uv), "--inv", inv).err
+    out = c("propose", "remove", "Cargo.lock", "--reason", "Rust part retired", "--inv", inv).out
+    assert "removing the lock file 'Cargo.lock'" in out and "--lock uv.lock" in out
+    assert "remaining lock files" in typed(c, f"/craft-approve --inv {inv}")
+    assert "v3" in typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    assert "env.lock v4" in c("lock", str(uv), "--inv", inv).out  # serde went with Cargo.lock
+    help_text = typed(c, "/craft-help")
+    assert "add or remove" in help_text and "--lock" in help_text
+
+
+@pytest.mark.checkpoint("9.9")
 def test_a_single_lock_file_can_be_replaced_by_another_tool(programme: Craft):
     c = programme
     inv = open_inv(c)
