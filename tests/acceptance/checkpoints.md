@@ -56,7 +56,7 @@
 | 9.10 | test_a_bare_decision_reaches_the_one_waiting_investigation |
 | 9.11 | test_a_parked_idea_validates_as_an_idea |
 | 9.12 | test_memory_is_not_repeated_within_a_session |
-| 9.13 | test_provenance_and_notes_never_touch_a_registration |
+| 9.13 | test_an_edited_registered_hypothesis_is_re_reviewed_only_when_named, test_provenance_and_notes_never_touch_a_registration |
 | 9.14 | test_abandoned_or_deferred_hypotheses_are_not_pending_work |
 | 9.15 | test_one_glossary_for_the_words_on_the_board |
 | 9.16 | test_refresh_reports_changes_and_never_nests |

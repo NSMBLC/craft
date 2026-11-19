@@ -5,6 +5,13 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
+## Unreleased
+
+- `craft review` no longer re-reviews a registered hypothesis that was edited unless it is named
+  (`--hyp H1`); a review that does not name it says how, and a named one says first that the
+  hypothesis leaves registered and which review cycle starts. The board's "edited since registration"
+  says the same (#35).
+
 ## 0.3.1 — 2026-11-18
 
 Fixes to package removal, `craft lint` and carrying literature.

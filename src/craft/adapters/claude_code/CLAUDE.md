@@ -46,7 +46,8 @@ messages when it matters: follow them, and fix everything a refusal lists before
 4. **Review.** `craft review` sends every complete draft to an independent referee. Answer each
    blocking objection by changing the design, `craft review respond H1:O1 --pointer ... --note ...`,
    then `craft review` again. Two rounds at most; after that only a genuine change starts a new cycle.
-   A clean pass registers the hypothesis.
+   A clean pass registers the hypothesis. A registered hypothesis you edit is re-reviewed only when
+   named (`craft review --hyp H1`), which takes it out of registered; tell the researcher first.
 5. **Experiments.** Write the plan before running. Record input data with how it was built
    (`craft data add <path> --id <id> --derivation`, ideally before review; generated inputs with
    `--generated --seeds`, fetched ones by the runner with `--fetched`) and the environment

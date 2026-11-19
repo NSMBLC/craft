@@ -480,6 +480,24 @@ def test_provenance_and_notes_never_touch_a_registration(programme: Craft):
     assert "edited since registration" in c("status").out
 
 
+@pytest.mark.checkpoint("9.13")
+def test_an_edited_registered_hypothesis_is_re_reviewed_only_when_named(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    h = c.root / "investigations" / inv / "hypotheses" / "H1.md"
+    h.write_text(h.read_text().replace("paired comparison across seeds", "paired t-test across seeds"))
+    assert "`craft review --hyp H1` re-reviews it and restarts its cycle" in c("status").out
+    script = c.root.parent / "cycle2.json"
+    env = {"CRAFT_REFEREE_BACKEND": "fake", "CRAFT_FAKE_REFEREE": str(script)}
+    r = c("review", "--inv", inv, env=env)
+    assert r.code != 0 and "H1: registered, and edited since; `craft review --hyp H1` re-reviews it" in r.err
+    assert board(c)["hypotheses"]["H1"]["status"] == "registered"  # untouched by a review that did not name it
+    r = c("review", "--hyp", "H1", "--inv", inv, env=env)
+    assert r.code == 0 and "Re-reviewing H1: edited since registration" in r.out and "cycle 2" in r.out, r.text
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())["hypotheses"]["H1"]
+    assert len(st["cycles"]) == 1 and st["registered_sha256"]
+
+
 @pytest.mark.checkpoint("9.14")
 def test_abandoned_or_deferred_hypotheses_are_not_pending_work(programme: Craft):
     c = programme
