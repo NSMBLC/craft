@@ -287,6 +287,31 @@ def test_a_project_with_two_package_managers_records_both_locks(programme: Craft
     assert c("verify").code == 0
 
 
+@pytest.mark.checkpoint("9.9")
+def test_an_approved_package_stays_in_its_own_lock_file(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "regex"\n')
+    cargo = c.write("rust/Cargo.lock", 'version = 3\n[[package]]\nname = "regex"\n')
+    c("propose", "package", "regex", "--reason", "tokenising", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    assert "env.lock v3" in c("lock", str(uv), str(cargo), "--inv", inv).out
+    uv.write_text('version = 1\n[[package]]\nname = "numpy"\n')  # Python regex gone; Rust regex remains
+    r = c("lock", str(uv), str(cargo), "--inv", inv)
+    assert r.code != 0 and "does not contain regex (in uv.lock)" in r.err
+
+
+@pytest.mark.checkpoint("9.9")
+def test_a_single_lock_file_can_be_replaced_by_another_tool(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    reqs = c.write("requirements.txt", "numpy==2.1\n")
+    c("propose", "package", "numpy", "--reason", "arrays", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {reqs}")
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n')
+    assert "env.lock v3" in c("lock", str(uv), "--inv", inv).out
+
+
 @pytest.mark.checkpoint("9.10")
 def test_a_bare_decision_reaches_the_one_waiting_investigation(programme: Craft):
     c = programme

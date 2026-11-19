@@ -60,7 +60,8 @@ def _labels(sources: list[Path]) -> list[str]:
     return [s.name if names.count(s.name) == 1 else s.as_posix() for s in sources]
 
 
-def _read_locks(state: InvestigationState, sources: list[Path], extra: list[str]) -> tuple[bytes, list[dict]]:
+def _read_locks(state: InvestigationState, sources: list[Path],
+                extra: list[str]) -> tuple[bytes, list[dict], dict[str, list[str]]]:
     """Check the lock files and combine them into one record. One file is recorded as is; several are
     recorded together, each in its own section headed by its name and hash, so a project with more than
     one package manager (uv.lock and Cargo.lock) records its whole environment as one version."""
@@ -79,20 +80,34 @@ def _read_locks(state: InvestigationState, sources: list[Path], extra: list[str]
             parts.append(f"\n# ===== {f['file']} (sha256 {f['sha256']}) =====\n".encode())
             parts.append(raw if raw.endswith(b"\n") else raw + b"\n")
         body = b"".join(parts)
-    what = " + ".join(labels)
-    text = _norm(body.decode("utf-8"))
+    texts = {label: _norm(s.read_text(encoding="utf-8")) for label, s in zip(labels, sources)}
     names = approved_packages(state) + [m.group(0) for p in extra if (m := re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", p))]
-    missing = [p for p in dict.fromkeys(names)
-               if not re.search(rf"(?<![a-z0-9-]){re.escape(_norm(p))}(?![a-z0-9-])", text)]
+    held = _held_in(state)
+    packages: dict[str, list[str]] = {}
+    missing = []
+    for name in dict.fromkeys(names):
+        found = [label for label, text in texts.items()
+                 if re.search(rf"(?<![a-z0-9-]){re.escape(_norm(name))}(?![a-z0-9-])", text)]
+        # A package once found in a lock file must stay in that file: the same name in another package
+        # manager's lock (Python and Rust both have `regex`) is a different package.
+        tied = [label for label in held.get(_norm(name), []) if label in texts]
+        if tied:
+            if lost := [label for label in tied if label not in found]:
+                missing.append(f"{name} (in {', '.join(lost)})")
+            packages[name] = tied
+        elif found:
+            packages[name] = found
+        else:
+            missing.append(name)
     if missing:
         raise CraftError(
-            f"{what} does not contain {', '.join(missing)}, which the researcher approved for this environment. "
-            "Resolve the lock with the approved packages included (a project with more than one package manager "
-            "gives every lock file together, e.g. `craft lock uv.lock Cargo.lock`); dropping one is an "
-            "environment change the researcher decides."
+            f"{' + '.join(labels)} does not contain {', '.join(missing)}, which the researcher approved for this "
+            "environment. Resolve the lock with the approved packages included (a project with more than one "
+            "package manager gives every lock file together, e.g. `craft lock uv.lock Cargo.lock`); dropping one "
+            "is an environment change the researcher decides."
         )
     previous = next((h["files"] for h in reversed(state.env.history) if h.get("files")), [])
-    dropped = [f["file"] for f in previous if f["file"] not in labels]
+    dropped = [f["file"] for f in previous if f["file"] not in labels] if len(previous) > 1 else []
     if dropped:
         before = " ".join(f["file"] for f in previous)
         raise CraftError(
@@ -100,14 +115,23 @@ def _read_locks(state: InvestigationState, sources: list[Path], extra: list[str]
             f"{', '.join(dropped)}. Give every lock file together (`craft lock {before}`); dropping one is an "
             "environment change the researcher decides."
         )
-    return body, files
+    return body, files, packages
+
+
+def _held_in(state: InvestigationState) -> dict[str, list[str]]:
+    """Which lock file holds each approved package, as the latest recorded lock found it."""
+    out: dict[str, list[str]] = {}
+    for h in state.env.history:
+        for name, labels in (h.get("packages") or {}).items():
+            out[_norm(name)] = labels
+    return out
 
 
 def init_lock(inv: InvestigationPaths, state: InvestigationState, sources: list[Path] | None) -> None:
     """Record env.lock from the lock files (uv.lock, or uv.lock and Cargo.lock together), or an empty lock
     for a new investigation. Versions only move forward, every approved package must be in the new lock,
     and every lock file recorded before must be given again."""
-    body, files = _read_locks(state, sources, []) if sources else (None, [])
+    body, files, packages = _read_locks(state, sources, []) if sources else (None, [], {})
     make_writable(inv.env_lock)
     if body is not None:
         inv.env_lock.write_bytes(body)
@@ -121,6 +145,8 @@ def init_lock(inv: InvestigationPaths, state: InvestigationState, sources: list[
              "note": note + (" from " + " + ".join(f["file"] for f in files) if files else "")}
     if files:
         entry["files"] = files
+    if packages:
+        entry["packages"] = packages
     state.env.history.append(entry)
 
 
@@ -142,8 +168,9 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_locks: list[
     if not prop:
         raise CraftError("no pending environment proposal")
     files: list[dict] = []
+    packages: dict[str, list[str]] = {}
     if new_locks:
-        body, files = _read_locks(state, new_locks, [prop["package"]])
+        body, files, packages = _read_locks(state, new_locks, [prop["package"]])
     make_writable(inv.env_lock)
     if new_locks:
         inv.env_lock.write_bytes(body)
@@ -158,6 +185,8 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_locks: list[
     }
     if files:
         entry["files"] = files
+    if packages:
+        entry["packages"] = packages
     state.env.history.append(entry)
     state.env.pending_proposal = None
     if inv.env_proposal.exists():
