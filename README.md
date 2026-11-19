@@ -32,8 +32,18 @@ uv tool install git+https://github.com/NSMBLC/craft     # or: uv tool install -e
 craft --version
 ```
 
-Releases are tagged (`uv tool install git+https://github.com/NSMBLC/craft@v0.1.0` pins one) and listed in
-`CHANGELOG.md`. While CRAFT is at 0.x, a minor version adds or changes behaviour and a patch only fixes it.
+Releases are tagged and published on the [Releases page](https://github.com/NSMBLC/craft/releases) with
+their notes from `CHANGELOG.md`. While CRAFT is at 0.x, a minor version adds or changes behaviour and a
+patch only fixes it.
+
+To upgrade, install the release you want, then run `craft init` at the root of each programme:
+
+```
+uv tool install --force git+https://github.com/NSMBLC/craft@v0.2.1   # a pinned release
+uv tool upgrade craft-research                                        # or: the latest, if installed unpinned
+craft --version
+cd ~/research/scaling-study && craft init    # reports "from X to Y" and what changed
+```
 
 Requires Python 3.12+ and, for the independent referee, the `claude` CLI on PATH (or set
 `referee.backend: command` in `craft.yaml` to use any other model CLI). The referee uses your
