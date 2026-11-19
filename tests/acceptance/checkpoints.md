@@ -63,7 +63,7 @@
 | 9.17 | test_evidence_can_be_checked_before_the_real_run |
 | 9.18 | test_a_kill_still_lets_existing_evidence_be_judged |
 | 9.19 | test_how_data_were_derived_reaches_the_referee |
-| 9.20 | test_sources_carry_over_from_an_archived_investigation |
+| 9.20 | test_a_full_text_given_by_absolute_path_carries_after_closure, test_an_old_absolute_full_text_path_is_found_by_its_hash, test_sources_carry_over_from_an_archived_investigation |
 | 9.21 | test_closure_and_literature_are_validated |
 | 9.22 | test_a_kill_criterion_is_judged_from_recorded_verdicts |
 | 9.23 | test_generated_and_fetched_inputs_are_recorded |
