@@ -44,6 +44,7 @@ def add_source(
     relation: str = "",
     does_not_cover: str = "",
     rejected: bool = False,
+    root: Path | None = None,
 ) -> dict:
     data = load_sources(path)
     if any(s.get("key") == key for s in data["sources"]):
@@ -57,7 +58,7 @@ def add_source(
             )
         entry.update(
             status="used",
-            fulltext=str(fulltext),
+            fulltext=programme_path(fulltext, root),
             fulltext_sha256=sha256_file(fulltext),
             claims=claims,
             method=method,
@@ -73,7 +74,23 @@ def add_source(
     return entry
 
 
-def validate_literature(path: Path) -> Validation:
+def programme_path(p: Path, root: Path | None) -> str:
+    """How a full text is recorded: relative to the programme when it is inside it (so the record still
+    resolves after closure moves the investigation to archive/), absolute when it lives elsewhere."""
+    if root is not None:
+        try:
+            return p.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return str(p.resolve())
+    return str(p)
+
+
+def resolve_fulltext(ft: str, root: Path | None) -> Path:
+    p = Path(ft)
+    return p if p.is_absolute() or root is None else root / p
+
+
+def validate_literature(path: Path, root: Path | None = None) -> Validation:
     v = Validation("literature/sources.yaml")
     if not path.exists():
         v.error("sources.yaml", "missing — run `craft literature add` for each source consulted")
@@ -86,7 +103,7 @@ def validate_literature(path: Path) -> Validation:
         key = s.get("key", "?")
         if s.get("status") == "used":
             ft = s.get("fulltext")
-            if not ft or not Path(ft).exists():
+            if not ft or not (resolve_fulltext(ft, root).exists() or Path(ft).exists()):
                 v.error(f"{key}.fulltext", "used source whose full text is not on disk; record it as abstract-only with a reason")
             for f in USED_FIELDS:
                 if not nonempty(s.get(f)):
@@ -158,7 +175,10 @@ def _find_fulltext(root: Path, src_dir: Path, src_id: str, ft: str, digest: str)
     """The source investigation's full text, wherever it now is, if its contents still match the record."""
     p = Path(ft)
     candidates = [p] if p.is_absolute() else [root / p, src_dir / p]
-    rel = p.as_posix()
+    try:  # an absolute path into the programme, recorded before closure moved the investigation
+        rel = p.resolve().relative_to(root.resolve()).as_posix() if p.is_absolute() else p.as_posix()
+    except ValueError:
+        rel = p.as_posix()
     for prefix in (f"investigations/{src_id}/", f"archive/{src_id}/"):
         if rel.startswith(prefix):
             candidates.append(src_dir / rel[len(prefix):])
@@ -166,7 +186,9 @@ def _find_fulltext(root: Path, src_dir: Path, src_id: str, ft: str, digest: str)
     for c in candidates:
         if c.is_file() and sha256_file(c) == digest:
             return c
-    return None
+    # wherever the investigation now keeps it: the same name first, then any file with the recorded hash
+    files = sorted((f for f in src_dir.rglob("*") if f.is_file()), key=lambda f: f.name != p.name)
+    return next((f for f in files if sha256_file(f) == digest), None)
 
 
 def carry_sources(root: Path, src_dir: Path, src_id: str, lit_dir: Path, sources: Path,

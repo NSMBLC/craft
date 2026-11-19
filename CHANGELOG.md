@@ -10,6 +10,11 @@ upgrading, run `craft init` at the root of each programme; it reports the versio
 - Removing a package is checked only in the lock files that held it: the same name in another package
   manager's lock (`regex` in `uv.lock` and `Cargo.lock`) no longer blocks the removal, and stays
   required where it remains (#53).
+- `craft lint` with no argument lints the investigation's problem statement, literature map and
+  hypotheses; it accepts a directory, and a missing path is a one-line error, not a traceback (#38).
+- `craft literature add --fulltext` records a full text inside the programme relative to it, and
+  `craft literature carry` finds an archived full text by its hash wherever it now is, including
+  sources recorded with absolute paths (#33).
 
 ## 0.3.0 — 2026-11-18
 

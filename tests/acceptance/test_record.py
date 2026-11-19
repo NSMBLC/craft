@@ -661,6 +661,56 @@ def test_sources_carry_over_from_an_archived_investigation(programme: Craft):
     assert c("lit", "carry", inv, "--key", "nope", "--inv", "inv-003").code != 0
 
 
+@pytest.mark.checkpoint("9.20")
+def test_a_full_text_given_by_absolute_path_carries_after_closure(programme: Craft):
+    import yaml
+
+    c = programme
+    inv = open_inv(c)
+    ft = c.write(f"investigations/{inv}/literature/papers/kim2024.txt", "full text of kim2024 " * 50)
+    assert ft.is_absolute()
+    assert c("lit", "add", "kim2024", "--title", "Retriever scaling", "--fulltext", str(ft), "--claims", "c",
+             "--method", "m", "--relation", "supports", "--does-not-cover", "d", "--inv", inv).code == 0
+    rec = yaml.safe_load((c.root / "investigations" / inv / "literature" / "sources.yaml").read_text())
+    assert rec["sources"][0]["fulltext"] == f"investigations/{inv}/literature/papers/kim2024.txt"
+    close(c)
+    assert c("new", "inv-002", "--topic", "does the advantage hold on a second corpus").code == 0
+    r = c("lit", "carry", inv, "--inv", "inv-002")
+    assert r.code == 0 and "Carried 1 source(s)" in r.out, r.text
+    assert (c.root / "investigations" / "inv-002" / "literature" / "kim2024.txt").exists()
+
+
+@pytest.mark.checkpoint("9.20")
+def test_an_old_absolute_full_text_path_is_found_by_its_hash(programme: Craft):
+    import yaml
+
+    c = programme
+    inv = open_inv(c)
+    ft = c.write(f"investigations/{inv}/literature/papers/kim2024.txt", "full text of kim2024 " * 50)
+    c("lit", "add", "kim2024", "--title", "Retriever scaling", "--fulltext", str(ft), "--claims", "c",
+      "--method", "m", "--relation", "supports", "--does-not-cover", "d", "--inv", inv)
+    src = c.root / "investigations" / inv / "literature" / "sources.yaml"
+    data = yaml.safe_load(src.read_text())
+    data["sources"][0]["fulltext"] = str(ft)  # as recorded by CRAFT 0.3.0 and earlier
+    src.write_text(yaml.safe_dump(data))
+    close(c)
+    assert c("new", "inv-002", "--topic", "does the advantage hold on a second corpus").code == 0
+    assert "Carried 1 source(s)" in c("lit", "carry", inv, "--inv", "inv-002").out
+
+
+def test_lint_runs_on_the_investigation_a_directory_or_a_file(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    r = c("lint", "--inv", inv)
+    assert r.code == 0 and "no bare priority claims" in r.out and "Traceback" not in r.err
+    bad = c.write("notes/claim.md", "No prior work addresses this question.\n")
+    r = c("lint", str(bad.parent), "--inv", inv)
+    assert r.code == 1 and "claim.md" in r.out and "bare priority claim" in r.out
+    assert c("lint", str(bad), "--inv", inv).code == 1
+    r = c("lint", "nowhere.md", "--inv", inv)
+    assert r.code != 0 and "does not exist" in r.err and "Traceback" not in r.err
+
+
 @pytest.mark.checkpoint("9.21")
 def test_closure_and_literature_are_validated(programme: Craft):
     c = programme

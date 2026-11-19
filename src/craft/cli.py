@@ -390,7 +390,7 @@ def validate(artifact: str = typer.Argument("all", help="problem | literature | 
         results.append(validate_problem(inv.problem, int(prog.config["limits"]["problem_max_words"])))
     if artifact in ("literature", "all"):
         if inv.sources.exists() or artifact == "literature":
-            results.append(validate_literature(inv.sources))
+            results.append(validate_literature(inv.sources, prog.root))
     if artifact in ("hypotheses", "hypothesis"):
         if not hyp_ids:
             raise CraftError("no hypotheses yet: write hypotheses/H1.md")
@@ -500,16 +500,34 @@ def renumber(old: str = typer.Argument(..., help="The unregistered hypothesis, e
 
 
 @app.command()
-def lint(doc: Path = typer.Argument(..., help="Any markdown document."), inv_id: Optional[str] = INV_OPT) -> None:
+def lint(doc: Optional[Path] = typer.Argument(None, help="A markdown document or a directory of them; default: the investigation's problem, literature map and hypotheses."),
+         inv_id: Optional[str] = INV_OPT) -> None:
     """Flag bare priority claims ('no prior work addresses this') lacking a named closest work + delta."""
     prog, inv, state = _ctx(inv_id)
-    problems = lint_priority_claims(doc, inv.sources)
-    if not problems:
-        echo(f"{doc}: no bare priority claims.")
-        return
-    for p in problems:
-        echo(f"- {p}")
-    raise typer.Exit(code=1)
+    if doc is None:
+        docs = [d for d in [inv.problem, inv.lit_map] + [inv.hypothesis(h) for h in inv.hypothesis_ids()] if d.exists()]
+    elif doc.is_dir():
+        docs = sorted(p for p in doc.rglob("*.md") if p.is_file() and not any(x.startswith(".") for x in p.parts))
+    elif doc.is_file():
+        docs = [doc]
+    else:
+        raise CraftError(f"{doc} does not exist; give a markdown document or a directory (or nothing, to lint the investigation)")
+    failed = False
+    for d in docs:
+        try:
+            problems = lint_priority_claims(d, inv.sources)
+        except UnicodeDecodeError:
+            echo(f"{d}: skipped (not a text document)")
+            continue
+        for p in problems:
+            echo(f"- {p}" if doc is not None and doc.is_file() else f"- {d}: {p}")
+        failed = failed or bool(problems)
+    if not docs:
+        echo("no documents to lint.")
+    elif not failed:
+        echo(f"{docs[0] if len(docs) == 1 else f'{len(docs)} documents'}: no bare priority claims.")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 # ------------------------------------------------------------------ literature
@@ -530,7 +548,8 @@ def lit_add(key: str, title: str = typer.Option(..., "--title"),
     if sum(bool(x) for x in (fulltext, abstract_only, rejected)) != 1:
         raise CraftError("give exactly one of --fulltext <path> (read in full), --abstract-only --reason (consulted from "
                          "the abstract; never backs a claim) or --rejected --reason (set aside)")
-    entry = add_source(inv.sources, key, title, fulltext, reason, claims, method, relation, does_not_cover, rejected)
+    entry = add_source(inv.sources, key, title, fulltext, reason, claims, method, relation, does_not_cover, rejected,
+                       root=prog.root)
     what = {"used": "used (read in full)", "abstract-only": "abstract-only (citable for context; never backs a claim)",
             "rejected": "rejected (consulted and set aside)"}[entry["status"]]
     echo(f"Added {key} as {what}.")
@@ -650,7 +669,7 @@ def review_request(hyp: list[str] = typer.Option([], "--hyp"), inv_id: Optional[
                          "researcher types `/craft-approve`.")
     state.require_phase(Phase.OPEN, action="request review")
     if inv.sources.exists():
-        lv = validate_literature(inv.sources)
+        lv = validate_literature(inv.sources, prog.root)
         if not lv.ok:
             raise CraftError("the literature map is not complete:\n" + lv.render())
     targets = list(hyp) or inv.hypothesis_ids()
