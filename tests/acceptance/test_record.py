@@ -324,6 +324,40 @@ def test_an_approved_package_is_removed_through_the_researcher(programme: Craft)
 
 
 @pytest.mark.checkpoint("9.9")
+def test_removing_a_package_leaves_a_same_named_one_in_another_lock(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n[[package]]\nname = "regex"\n')
+    cargo = c.write("rust/Cargo.lock", 'version = 3\n[[package]]\nname = "regex"\n')
+    c("propose", "package", "regex", "--reason", "tokenising", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())
+    assert st["env"]["history"][-1]["packages"]["regex"] == ["uv.lock", "Cargo.lock"]
+    c("propose", "remove", "regex", "--reason", "tokeniser replaced", "--inv", inv)
+    assert "still contains regex" in typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")
+    uv.write_text('version = 1\n[[package]]\nname = "numpy"\n')  # gone from uv.lock only
+    assert "v3" in typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())
+    assert st["env"]["history"][-1]["packages"]["regex"] == ["Cargo.lock"] and st["env"]["history"][-1]["released"] == []
+    cargo.write_text('version = 3\n')  # where it stayed, it is still required
+    assert "does not contain regex (in Cargo.lock)" in c("lock", str(uv), str(cargo), "--inv", inv).err
+
+
+@pytest.mark.checkpoint("9.9")
+def test_removing_a_python_package_keeps_the_rust_one_of_the_same_name(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n[[package]]\nname = "regex"\n')
+    cargo = c.write("rust/Cargo.lock", 'version = 3\n[[package]]\nname = "serde"\n')
+    c("propose", "package", "regex", "--reason", "tokenising", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")  # regex recorded in uv.lock
+    cargo.write_text('version = 3\n[[package]]\nname = "serde"\n[[package]]\nname = "regex"\n')
+    c("propose", "remove", "regex", "--reason", "tokeniser replaced", "--inv", inv)
+    uv.write_text('version = 1\n[[package]]\nname = "numpy"\n')
+    assert "v3" in typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")  # Rust regex stays
+
+
+@pytest.mark.checkpoint("9.9")
 def test_a_package_is_removed_after_verdicts(programme: Craft):
     c = programme
     inv = open_inv(c)
