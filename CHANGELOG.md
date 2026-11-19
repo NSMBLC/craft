@@ -5,6 +5,14 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
+## Unreleased
+
+- `craft lint` with no argument lints the investigation's problem statement, literature map and
+  hypotheses; it accepts a directory, and a missing path is a one-line error, not a traceback (#38).
+- `craft literature add --fulltext` records a full text inside the programme relative to it, and
+  `craft literature carry` finds an archived full text by its hash wherever it now is, including
+  sources recorded with absolute paths (#33).
+
 ## 0.3.0 — 2026-11-18
 
 Packages and lock files can be removed from the environment, decided by the researcher.
