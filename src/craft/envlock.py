@@ -120,10 +120,17 @@ def _read_locks(state: InvestigationState, sources: list[Path], add: str | None 
     drop_file = remove if remove in previous else None
     if drop_file and drop_file in labels:
         raise CraftError(f"the approved change removes {drop_file} from the environment; give the other lock files without it")
+    remaining: list[str] = []
     if remove and not drop_file:
-        if still := [label for label, text in texts.items() if _mentions(text, remove)]:
+        # Only the lock files that held the package count: the same name in another package manager's lock
+        # (Python and Rust both have `regex`) is a different package. It must leave at least one of them;
+        # where it stays, it stays approved.
+        held_files = [label for label in _held_in(state).get(_norm(remove), []) if label in texts]
+        still = [label for label in held_files or texts if _mentions(texts[label], remove)]
+        if not held_files and still or held_files and len(still) == len(held_files):
             raise CraftError(f"{', '.join(still)} still contains {remove}, whose removal is being approved; "
                              "resolve the lock without it")
+        remaining = still
     kept = [f for f in previous if f != drop_file]
     dropped = [f for f in kept if f not in labels] if len(previous) > 1 else []
     if dropped:
@@ -159,6 +166,8 @@ def _read_locks(state: InvestigationState, sources: list[Path], add: str | None 
             "environment. Resolve the lock with the approved packages included (a project with more than one "
             f"package manager gives every lock file together, e.g. `craft lock uv.lock Cargo.lock`); {DECIDE}"
         )
+    if remaining:
+        packages[remove] = remaining
     return body, files, packages
 
 
@@ -253,7 +262,7 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_locks: list[
             body_unchanged = body.decode() == text
             if body_unchanged:
                 raise CraftError(f"env.lock does not hold {what}; nothing to remove")
-        released = [n for n in approved_packages(state) if _norm(n) == _norm(what)]
+        released = [n for n in approved_packages(state) if _norm(n) == _norm(what) and what not in packages]
     elif new_locks:
         body, files, packages = _read_locks(state, new_locks, add=what)
     else:
@@ -269,7 +278,9 @@ def approve(inv: InvestigationPaths, state: InvestigationState, new_locks: list[
     verb = {"add": "addition", "remove": "removal", "remove-file": "removal of the lock file"}[action]
     entry = {
         "version": state.env.version, "when": now_iso(), "sha256": state.env.lock_sha256, "package": what,
-        "note": f"approved {verb} {'of ' if action != 'remove-file' else ''}{what}: {prop['reason']}",
+        "note": f"approved {verb} {'of ' if action != 'remove-file' else ''}{what}"
+                + (f" (a package of that name stays in {', '.join(packages[what])})" if action == "remove" and what in packages else "")
+                + f": {prop['reason']}",
     }
     if action != "add":
         entry["action"] = action

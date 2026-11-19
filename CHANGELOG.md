@@ -5,6 +5,12 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
+## Unreleased
+
+- Removing a package is checked only in the lock files that held it: the same name in another package
+  manager's lock (`regex` in `uv.lock` and `Cargo.lock`) no longer blocks the removal, and stays
+  required where it remains (#53).
+
 ## 0.3.0 — 2026-11-18
 
 Packages and lock files can be removed from the environment, decided by the researcher.
