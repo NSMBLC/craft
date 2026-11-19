@@ -5,7 +5,9 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
-## Unreleased
+## 0.2.1 — 2026-11-18
+
+Fixes to the lock-file checks added in 0.2.0.
 
 - An approved package must stay in the lock file it was found in; the same name in another package
   manager's lock (`regex` in both `uv.lock` and `Cargo.lock`) no longer counts (#45).
