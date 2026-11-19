@@ -15,6 +15,9 @@ upgrading, run `craft init` at the root of each programme; it reports the versio
 - `judged_on: interval` on a registered criterion states the default and does not change the registration.
 - A file pointer in `derived_from` (`hypotheses/H1.md#criteria`) is read as that file, not as a hypothesis of
   another investigation; only one naming no file is flagged, and `craft renumber` rewrites it (#36).
+- `craft lock`, `craft new --lock` and `/craft-approve --lock` take several lock files, recorded together as
+  one environment version (a Python and Rust project gives `uv.lock Cargo.lock`); approved packages are
+  checked across all of them, and a later lock that leaves out an earlier one is refused (#42).
 
 ## 0.1.0 — 2026-10-26
 

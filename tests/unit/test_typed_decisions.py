@@ -7,7 +7,8 @@ def test_parse_typed_decisions():
     verb, o = parse_typed("/craft-approve")
     assert verb == "approve" and o["subject"] is None
     assert parse_typed("/craft-approve problem")[1]["subject"] == "problem"
-    assert parse_typed("/craft-approve package --lock uv.lock")[1]["lock"] == Path("uv.lock")
+    assert parse_typed("/craft-approve package --lock uv.lock")[1]["lock"] == [Path("uv.lock")]
+    assert parse_typed("/craft-approve --lock uv.lock --lock Cargo.lock")[1]["lock"] == [Path("uv.lock"), Path("Cargo.lock")]
     assert parse_typed("craft approve --inv x")[1]["inv"] == "x"
     assert parse_typed("/craft approve")[0] == "approve"
     verb, o = parse_typed('  /craft-close --inv inv-001 --note "done" --incomplete ')

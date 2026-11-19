@@ -264,6 +264,29 @@ def test_environment_record_only_describes_an_environment(programme: Craft):
     assert [h["version"] for h in st["env"]["history"]] == [1, 2, 3, 4]
 
 
+@pytest.mark.checkpoint("9.9")
+def test_a_project_with_two_package_managers_records_both_locks(programme: Craft):
+    c = programme
+    inv = open_inv(c)
+    uv = c.write("uv.lock", 'version = 1\n[[package]]\nname = "numpy"\n')
+    cargo = c.write("rust/Cargo.lock", 'version = 3\n[[package]]\nname = "serde"\n')
+    c("propose", "package", "numpy", "--reason", "arrays", "--inv", inv)
+    typed(c, f"/craft-approve --inv {inv} --lock {uv}")
+    r = c("lock", str(cargo), "--inv", inv)  # the Rust lock alone loses the approved Python package
+    assert r.code != 0 and "does not contain numpy" in r.err and "craft lock uv.lock Cargo.lock" in r.err
+    assert "env.lock v3" in c("lock", str(uv), str(cargo), "--inv", inv).out
+    env_lock = (c.root / "investigations" / inv / "env.lock").read_text()
+    assert "===== uv.lock" in env_lock and "===== Cargo.lock" in env_lock and 'name = "serde"' in env_lock
+    r = c("lock", str(uv), "--inv", inv)  # dropping the Rust lock is the researcher's decision
+    assert r.code != 0 and "leaves out Cargo.lock" in r.err
+    c("propose", "package", "rayon", "--reason", "parallel loops", "--inv", inv)
+    cargo.write_text(cargo.read_text() + '[[package]]\nname = "rayon"\n')
+    assert "v4" in typed(c, f"/craft-approve --inv {inv} --lock {uv} --lock {cargo}")
+    st = json.loads((c.root / "investigations" / inv / "state.json").read_text())
+    assert [f["file"] for f in st["env"]["history"][-1]["files"]] == ["uv.lock", "Cargo.lock"]
+    assert c("verify").code == 0
+
+
 @pytest.mark.checkpoint("9.10")
 def test_a_bare_decision_reaches_the_one_waiting_investigation(programme: Craft):
     c = programme

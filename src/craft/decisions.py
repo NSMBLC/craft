@@ -94,7 +94,7 @@ def _last_approval(state: InvestigationState) -> str:
     return "earlier"
 
 
-def env_approve(prog: Programme, inv_id: str | None, lock: Path | None, confirm: Confirm, via: str) -> str:
+def env_approve(prog: Programme, inv_id: str | None, lock: list[Path] | None, confirm: Confirm, via: str) -> str:
     inv, state = _ctx(prog, inv_id)
     prop = envlock.pending(state)
     if not prop:
@@ -258,7 +258,7 @@ def parse_typed(prompt: str) -> tuple[str, dict] | None:
         toks = shlex.split(m.group(2))
     except ValueError:
         return None
-    opts: dict = {"inv": None, "note": "", "lock": None, "incomplete": False, "accept_current": False,
+    opts: dict = {"inv": None, "note": "", "lock": [], "incomplete": False, "accept_current": False,
                   "subject": None, "arg": None, "evidence": None}
     if verb == "explain":
         if len(toks) != 1 or toks[0].startswith("-"):
@@ -289,7 +289,7 @@ def parse_typed(prompt: str) -> tuple[str, dict] | None:
             opts["note"] = toks[i + 1]
             i += 2
         elif t == "--lock" and i + 1 < len(toks):
-            opts["lock"] = Path(toks[i + 1])
+            opts["lock"].append(Path(toks[i + 1]))
             i += 2
         elif t == "--evidence" and i + 1 < len(toks) and verb == "correct":
             opts["evidence"] = Path(toks[i + 1])
