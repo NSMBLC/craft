@@ -5,7 +5,9 @@ changes behaviour (a command, flag or field, a new refusal or warning, a change 
 patch only fixes behaviour back to what was intended. Breaking changes are marked **Breaking**. After
 upgrading, run `craft init` at the root of each programme; it reports the version it refreshed from.
 
-## Unreleased
+## 0.3.0 — 2026-11-18
+
+Packages and lock files can be removed from the environment, decided by the researcher.
 
 - `craft propose remove <package> --reason ...` proposes removing a package from the environment, and
   `craft propose remove <lock file>` a whole lock file recorded with others; verdicts halt until the
